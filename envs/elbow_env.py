@@ -79,14 +79,9 @@ class CombinedExoOnlyWrapper(gym.Env):
         self._base_obs_dim: int = self.frozen_policy.observation_space.shape[0]
 
         # Determine pose_err dimension from the base env obs_dict
-        _sample_dict = self.base_env.unwrapped.get_obs_dict(
-            self.base_env.unwrapped.sim
-        )
-        _pe = _sample_dict.get("pose_err", np.array([]))
-        if hasattr(_pe, "__len__") and not isinstance(_pe, str):
-            self._pose_err_dim: int = len(_pe)
-        else:
-            self._pose_err_dim = 1
+        _pe_raw = self.base_env.unwrapped.get_obs_dict(self.base_env.unwrapped.sim).get("pose_err", np.array([]))
+        _pe = np.atleast_1d(np.asarray(_pe_raw))
+        self._pose_err_dim = int(_pe.size)
 
         # Exo obs is base obs minus pose_err (if requested)
         self._exo_obs_dim: int = (
@@ -150,8 +145,8 @@ class CombinedExoOnlyWrapper(gym.Env):
                 self.base_env.unwrapped.sim.model.actuator_dynprm[:] = (
                     self._original_dynprm
                 )
-            except Exception:
-                pass
+            except AttributeError:
+                self._original_dynprm = None
 
     # ------------------------------------------------------------------
     # Observation helpers
@@ -180,7 +175,10 @@ class CombinedExoOnlyWrapper(gym.Env):
         """Reset episode, apply smart fatigue reset and bradykinesia if enabled."""
         # Standard reset — fatigue_reset=True triggers myosuite's built-in
         # fatigue state randomisation; we may override below via smart_reset.
-        raw_obs, info = self.base_env.reset(fatigue_reset=True)
+        try:
+            raw_obs, info = self.base_env.reset(seed=seed, fatigue_reset=True)
+        except TypeError:
+            raw_obs, info = self.base_env.reset(seed=seed)
 
         # --- Target angle randomisation ---
         tjr = self.base_env.unwrapped.target_jnt_range  # shape (n_joints, 2)
