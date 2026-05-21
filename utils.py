@@ -19,6 +19,7 @@ skvideo.setFFmpegPath(FFMPEG_PATH)
 
 def add_text_to_frame(frame: np.ndarray, text: str,
                       pos=(10, 5), color=(255, 255, 255)) -> np.ndarray:
+    frame = np.asarray(frame, dtype=np.uint8)
     img = PIL.Image.fromarray(frame)
     PIL.ImageDraw.Draw(img).text(pos, text, fill=color)
     return np.asarray(img)
@@ -37,8 +38,13 @@ def save_video(frames: list, path: str) -> None:
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
+    arr = np.asarray(frames, dtype=np.float32)
+    if arr.max() <= 1.0 and arr.min() >= 0.0 and arr.dtype != np.uint8:
+        arr = (arr * 255).astype(np.uint8)
+    else:
+        arr = arr.astype(np.uint8)
     skvideo.io.vwrite(
-        path, np.asarray(frames, dtype=np.uint8),
+        path, arr,
         outputdict={"-pix_fmt": "yuv420p"},
     )
 
@@ -46,7 +52,7 @@ def save_video(frames: list, path: str) -> None:
 def compute_severity(force_scale: float,
                      activation_slowdown: float,
                      avg_mf: float) -> float:
-    """Normalized [0, 1] severity — equal weight across 3 impairment components."""
+    """Normalized [0, 1] severity; avg_mf must be pre-normalized to [0, 1] (0=no fatigue, 1=fully fatigued)."""
     f = (0.9 - force_scale) / 0.3          # [0.9, 0.6] -> [0, 1] (lower scale = more impaired)
     s = (activation_slowdown - 1.1) / 0.3  # [1.1, 1.4] -> [0, 1]
     return float(np.clip((f + s + avg_mf) / 3.0, 0.0, 1.0))
