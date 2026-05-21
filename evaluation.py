@@ -408,8 +408,8 @@ def main():
         print(f"reward={trial['reward']:7.2f}  corr={trial['correlation']:.3f}  "
               f"goal={'Y' if trial['goal_achieved'] else 'N'}")
 
-    # Mark cells with <2 trials as NaN per spec
-    matrix[mat_counts < 2] = np.nan
+    # Mark cells with no trials as NaN
+    matrix[mat_counts < 1] = np.nan
 
     print(f"\nGenerating plots -> {out_dir}/")
     plot_joint_angle_overlay(all_trials, angle_edges, out_dir)

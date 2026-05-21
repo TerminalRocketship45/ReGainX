@@ -201,7 +201,7 @@ def build_matrix(trials: list, severity_edges: np.ndarray) -> np.ndarray:
         sums[row, col] += t["correlation"]
         counts[row, col] += 1
 
-    mask = counts >= 2
+    mask = counts >= 1
     matrix[mask] = sums[mask] / counts[mask]
     return matrix
 
