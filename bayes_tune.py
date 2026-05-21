@@ -44,7 +44,7 @@ def make_env():
     return CombinedExoOnlyWrapper(
         base,
         frozen_policy_path=HEALTHY_POLICY_PATH,
-        bradykinesia=False,
+        bradykinesia=True,
         smart_reset=True,
         hide_pose_err=True,
     )

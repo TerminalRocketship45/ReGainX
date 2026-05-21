@@ -1,11 +1,13 @@
 """
 Train an exoskeleton policy with configurable impairment and CNN settings.
 
+Bradykinesia is ON by default. Use --no-bradykinesia to train on fatigue only.
+
 Usage:
-    python train_exo.py                          # degeneration only, no CNN
-    python train_exo.py --bradykinesia           # brady + degeneration, no CNN
-    python train_exo.py --cnn                    # degeneration only + CNN
-    python train_exo.py --bradykinesia --cnn     # brady + degeneration + CNN
+    python train_exo.py                          # brady + degeneration, no CNN (default)
+    python train_exo.py --no-bradykinesia        # degeneration only, no CNN
+    python train_exo.py --cnn                    # brady + degeneration + CNN
+    python train_exo.py --no-bradykinesia --cnn  # degeneration only + CNN
     python train_exo.py --timesteps 500000       # custom timestep count
 
 Requires:
@@ -13,10 +15,10 @@ Requires:
     best_params.json              (from bayes_tune.py — falls back to SB3 defaults)
 
 Policy naming:
-    policy_deg.zip
     policy_brady_deg.zip
-    policy_deg_cnn.zip
+    policy_deg.zip
     policy_brady_deg_cnn.zip
+    policy_deg_cnn.zip
 """
 
 import argparse
@@ -130,7 +132,8 @@ def post_training_analysis(model: PPO, env, pname: str, is_cnn: bool) -> None:
             total_reward += reward
 
             rwd_dict = base_env.base_env.unwrapped.rwd_dict
-            if rwd_dict.get("solved", np.array([False]))[0]:
+            solved_val = rwd_dict.get("solved", False)
+            if bool(np.asarray(solved_val).flat[0]):
                 solved = True
             if done or truncated:
                 break
@@ -157,8 +160,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Train exo PPO policy with optional bradykinesia and CNN"
     )
-    parser.add_argument("--bradykinesia", action="store_true",
-                        help="Enable bradykinesia simulation")
+    parser.add_argument("--no-bradykinesia", dest="bradykinesia",
+                        action="store_false",
+                        help="Disable bradykinesia (train on fatigue/degeneration only)")
+    parser.set_defaults(bradykinesia=True)
     parser.add_argument("--cnn", action="store_true",
                         help="Use 2D temporal CNN feature extractor")
     parser.add_argument("--timesteps", type=int, default=1_000_000,
