@@ -75,3 +75,29 @@ def test_get_combined_info_returns_dict(exo_env):
     assert "avg_mf" in info["fatigue"]
     assert "force_scale" in info["bradykinesia"]
     assert "activation_slowdown" in info["bradykinesia"]
+
+
+def test_temporal_stack_obs_shape(exo_env):
+    from envs.temporal_buffer import TemporalStackWrapper
+    wrapped = TemporalStackWrapper(exo_env, window=20)
+    obs, _ = wrapped.reset()
+    assert obs.shape == (1, 20, exo_env.observation_space.shape[0])
+    assert obs.dtype == np.float32
+
+
+def test_temporal_stack_fills_on_reset(exo_env):
+    from envs.temporal_buffer import TemporalStackWrapper
+    wrapped = TemporalStackWrapper(exo_env, window=5)
+    obs, _ = wrapped.reset()
+    # All 5 frames should be identical (filled with initial obs)
+    assert np.allclose(obs[0, 0], obs[0, 4])
+
+
+def test_temporal_stack_step_updates_buffer(exo_env):
+    from envs.temporal_buffer import TemporalStackWrapper
+    wrapped = TemporalStackWrapper(exo_env, window=3)
+    obs, _ = wrapped.reset()
+    action = wrapped.action_space.sample()
+    next_obs, _, _, _, _ = wrapped.step(action)
+    # Shape is correct after step
+    assert next_obs.shape == (1, 3, exo_env.observation_space.shape[0])
