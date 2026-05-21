@@ -11,8 +11,10 @@ primary accuracy metric. Trials are evenly distributed across the
 (angle_bin x severity_quartile) confusion matrix.
 
 Usage:
-    python evaluation.py                  # 32 trials (default)
+    python evaluation.py                                 # 32 trials, default paths
     python evaluation.py --trials 64
+    python evaluation.py --extraobs --out-dir results/extraobs_eval
+    python evaluation.py --out-dir results/cnn_eval
 """
 
 import argparse
@@ -130,7 +132,8 @@ def run_eval_trial(
             for _ in range(exo_env.window):
                 exo_env._buffer.append(obs_flat.astype(np.float32, copy=False))
             return exo_env._stack()
-        return base_env._exo_obs(base_env._current_raw_obs())
+        # _build_obs handles both base and extra_obs=True cases
+        return base_env._build_obs(base_env._current_raw_obs())
 
     # Track 1: Healthy
     healthy_env.reset()
@@ -304,24 +307,50 @@ def main():
     )
     parser.add_argument("--trials", type=int, default=32,
                         help="Total evaluation trials (distributed evenly across matrix)")
+    parser.add_argument("--out-dir", default="",
+                        help="Output directory (default: results/evaluation or auto-named from policy)")
+    parser.add_argument("--extraobs", action="store_true",
+                        help="Pass extra_obs=True to env (also auto-detected from policy filename)")
+    parser.add_argument("--healthy-path", default="",
+                        help="Path to healthy policy (skips interactive prompt)")
+    parser.add_argument("--exo-path", default="",
+                        help="Path to exo policy to evaluate (skips interactive prompt)")
     args = parser.parse_args()
 
     print("=" * 60)
     print("reGainX — Policy Evaluation")
     print("=" * 60)
-    healthy_path = input("Enter path to healthy policy [policies/healthy_policy.zip]: ").strip()
-    if not healthy_path:
-        healthy_path = "policies/healthy_policy.zip"
-    exo_path = input("Enter path to exo policy to evaluate [policies/policy_brady_deg.zip]: ").strip()
-    if not exo_path:
-        exo_path = "policies/policy_brady_deg.zip"
+    if args.healthy_path:
+        healthy_path = args.healthy_path
+    else:
+        healthy_path = input("Enter path to healthy policy [policies/healthy_policy.zip]: ").strip()
+        if not healthy_path:
+            healthy_path = "policies/healthy_policy.zip"
+    if args.exo_path:
+        exo_path = args.exo_path
+    else:
+        exo_path = input("Enter path to exo policy to evaluate [policies/policy_brady_deg.zip]: ").strip()
+        if not exo_path:
+            exo_path = "policies/policy_brady_deg.zip"
 
-    out_dir = "results/evaluation"
+    policy_basename = os.path.basename(exo_path).replace(".zip", "")
+    is_cnn      = "cnn"      in policy_basename
+    extra_obs   = args.extraobs or ("extraobs" in policy_basename)
+
+    if args.out_dir:
+        out_dir = args.out_dir
+    else:
+        out_dir = f"results/eval_{policy_basename}"
+
     os.makedirs(out_dir, exist_ok=True)
+
+    print(f"  Policy   : {exo_path}")
+    print(f"  CNN      : {is_cnn}")
+    print(f"  ExtraObs : {extra_obs}")
+    print(f"  Out dir  : {out_dir}")
 
     healthy_policy = PPO.load(healthy_path)
     exo_policy = PPO.load(exo_path)
-    is_cnn = "cnn" in os.path.basename(exo_path)
 
     healthy_env = gym.make("myoElbowPose1D6MRandom-v0")
     base = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
@@ -331,6 +360,7 @@ def main():
         bradykinesia=True,
         smart_reset=True,
         hide_pose_err=True,
+        extra_obs=extra_obs,
     )
     if is_cnn:
         exo_env = TemporalStackWrapper(exo_env, window=20)
@@ -388,7 +418,7 @@ def main():
     plot_goal_achievement(all_trials, out_dir)
     plot_confusion_matrix(
         matrix, ANGLE_LABELS, SEVERITY_LABELS,
-        f"Movement Accuracy — {os.path.basename(exo_path)}",
+        f"Movement Accuracy — {policy_basename}",
         os.path.join(out_dir, "confusion_matrix.png"),
     )
 
@@ -396,7 +426,8 @@ def main():
     mean_reward = float(np.mean([t["reward"] for t in all_trials]))
     goal_rate = float(np.mean([t["goal_achieved"] for t in all_trials]))
     print(f"\n{'='*60}")
-    print(f"Evaluation summary — {os.path.basename(exo_path)}")
+    print(f"Evaluation summary — {policy_basename}")
+    print(f"  Policy          : {policy_basename}")
     print(f"  Trials          : {args.trials}")
     print(f"  Mean reward     : {mean_reward:.2f}")
     print(f"  Goal rate       : {goal_rate:.1%}")

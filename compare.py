@@ -1,16 +1,16 @@
 """
-Systematic comparison of trained exo policies.
+Systematic ablation comparison of trained exo policies.
 
-Comparison A: policy_deg vs policy_brady_deg — both on brady+deg patients.
-Comparison B: policy_brady_deg vs policy_brady_deg_cnn — brady+deg patients.
+Three ablation studies — all evaluations on brady+deg patients:
+  CNN ablation     : policy_brady_deg vs policy_brady_deg_cnn  → results/cnn_ablation/
+  Brady ablation   : policy_deg_cnn vs policy_brady_deg_cnn   → results/bradykinesia_ablation/
+  ExtraObs ablation: policy_brady_deg vs policy_brady_deg_extraobs → results/extraobs_ablation/
 
 Usage:
     python compare.py
 
-The script prompts for all policy paths interactively.
-
-Outputs:
-    results/compare_A/  and  results/compare_B/
+The script prompts for all policy paths interactively (defaults provided).
+Noise robustness test is included only in the CNN ablation comparison.
 """
 
 import os
@@ -50,7 +50,7 @@ def make_healthy_env():
     return gym.make("myoElbowPose1D6MRandom-v0")
 
 
-def make_exo_env(healthy_path: str, cnn: bool = False):
+def make_exo_env(healthy_path: str, cnn: bool = False, extra_obs: bool = False):
     base = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
     env = CombinedExoOnlyWrapper(
         base,
@@ -58,6 +58,7 @@ def make_exo_env(healthy_path: str, cnn: bool = False):
         bradykinesia=True,  # always evaluate on brady+deg
         smart_reset=True,
         hide_pose_err=True,
+        extra_obs=extra_obs,
     )
     if cnn:
         env = TemporalStackWrapper(env, window=20)
@@ -127,7 +128,7 @@ def run_trial(
     base_env.base_env.unwrapped.sim.data.qvel[:] = 0.0
     base_env.base_env.unwrapped.sim.forward()
 
-    # Re-stack obs if CNN wrapper
+    # Rebuild obs after seeded patient setup (ensures force_scale/activation_slowdown are current)
     if isinstance(exo_env, TemporalStackWrapper):
         raw = base_env._current_raw_obs()
         exo_obs_flat = base_env._exo_obs(raw)
@@ -135,6 +136,8 @@ def run_trial(
         for _ in range(exo_env.window):
             exo_env._buffer.append(exo_obs_flat.astype(np.float32, copy=False))
         exo_obs = exo_env._stack()
+    else:
+        exo_obs = base_env._build_obs(base_env._current_raw_obs())
 
     exo_angles, latencies = [], []
     total_reward = 0.0
@@ -320,6 +323,8 @@ def run_comparison(
     cnn_b: bool,
     out_dir: str,
     angle_edges: np.ndarray,
+    extra_obs_a: bool = False,
+    extra_obs_b: bool = False,
 ):
     os.makedirs(out_dir, exist_ok=True)
     label_a = os.path.basename(policy_path_a).replace(".zip", "")
@@ -335,8 +340,8 @@ def run_comparison(
     policy_b = PPO.load(policy_path_b)
     healthy_policy = PPO.load(healthy_path)
 
-    env_a = make_exo_env(healthy_path, cnn=cnn_a)
-    env_b = make_exo_env(healthy_path, cnn=cnn_b)
+    env_a = make_exo_env(healthy_path, cnn=cnn_a, extra_obs=extra_obs_a)
+    env_b = make_exo_env(healthy_path, cnn=cnn_b, extra_obs=extra_obs_b)
     h_env_a = make_healthy_env()
     h_env_b = make_healthy_env()
 
@@ -373,64 +378,100 @@ def run_comparison(
     return policy_a, policy_b
 
 
+def _prompt(prompt_text: str, default: str) -> str:
+    val = input(f"{prompt_text} [{default}]: ").strip()
+    return val if val else default
+
+
 def main():
+    import argparse as _ap
+    parser = _ap.ArgumentParser(description="reGainX ablation comparisons")
+    parser.add_argument("--healthy",      default="", help="Path to healthy policy")
+    parser.add_argument("--brady",        default="", help="Path to policy_brady_deg")
+    parser.add_argument("--cnn",          default="", help="Path to policy_brady_deg_cnn")
+    parser.add_argument("--deg-cnn",      default="", help="Path to policy_deg_cnn")
+    parser.add_argument("--extraobs-pol", default="", help="Path to policy_brady_deg_extraobs")
+    cli = parser.parse_args()
+
     print("=" * 60)
-    print("reGainX — Policy Comparison")
+    print("reGainX — Ablation Comparison")
     print("=" * 60)
-    healthy_path = input("Enter path to healthy policy [policies/healthy_policy.zip]: ").strip()
-    if not healthy_path:
-        healthy_path = "policies/healthy_policy.zip"
-    path_deg = input("Enter path to degeneration-only policy [policies/policy_deg.zip]: ").strip()
-    if not path_deg:
-        path_deg = "policies/policy_deg.zip"
-    path_brady = input("Enter path to brady+deg policy [policies/policy_brady_deg.zip]: ").strip()
-    if not path_brady:
-        path_brady = "policies/policy_brady_deg.zip"
-    path_cnn = input("Enter path to CNN brady+deg policy [policies/policy_brady_deg_cnn.zip]: ").strip()
-    if not path_cnn:
-        path_cnn = "policies/policy_brady_deg_cnn.zip"
+    print("Three ablation studies — all evaluated on brady+deg patients.\n")
+
+    healthy_path  = cli.healthy      or _prompt("Healthy policy path",              "policies/healthy_policy.zip")
+    path_brady    = cli.brady        or _prompt("brady+deg (no CNN) policy path",   "policies/policy_brady_deg.zip")
+    path_cnn      = cli.cnn         or _prompt("brady+deg + CNN policy path",       "policies/policy_brady_deg_cnn.zip")
+    path_deg_cnn  = cli.deg_cnn     or _prompt("deg-only + CNN policy path",        "policies/policy_deg_cnn.zip")
+    path_extraobs = cli.extraobs_pol or _prompt("brady+deg + extraobs policy path", "policies/policy_brady_deg_extraobs.zip")
+
+    # Verify required files exist
+    missing = [p for p in [healthy_path, path_brady, path_cnn, path_extraobs]
+               if not os.path.exists(p)]
+    if missing:
+        print("\nERROR — missing policy files:")
+        for m in missing:
+            print(f"  {m}")
+        return
 
     tmp_env = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
-    low = float(tmp_env.unwrapped.target_jnt_range[0, 0])
+    low  = float(tmp_env.unwrapped.target_jnt_range[0, 0])
     high = float(tmp_env.unwrapped.target_jnt_range[0, 1])
     tmp_env.close()
     angle_edges = np.linspace(low, high, ANGLE_BINS + 1)
 
-    # Comparison A
-    run_comparison(
-        "Comparison A",
-        path_deg, path_brady,
-        healthy_path,
-        cnn_a=False, cnn_b=False,
-        out_dir="results/compare_A",
-        angle_edges=angle_edges,
-    )
-
-    # Comparison B
+    # ── CNN Ablation: brady (no CNN) vs brady (CNN) ────────────────────────
     policy_brady, policy_cnn = run_comparison(
-        "Comparison B",
+        "CNN Ablation",
         path_brady, path_cnn,
         healthy_path,
         cnn_a=False, cnn_b=True,
-        out_dir="results/compare_B",
+        out_dir="results/cnn_ablation",
         angle_edges=angle_edges,
     )
 
-    # Noise robustness (Comparison B only)
-    print("\nRunning noise robustness test (CNN vs no-CNN)...")
+    print("\nRunning noise robustness test for CNN ablation...")
     env_no_cnn = make_exo_env(healthy_path, cnn=False)
-    env_cnn = make_exo_env(healthy_path, cnn=True)
+    env_cnn    = make_exo_env(healthy_path, cnn=True)
     plot_noise_robustness(
         env_no_cnn, policy_brady,
-        env_cnn, policy_cnn,
+        env_cnn,    policy_cnn,
         labels=(os.path.basename(path_brady).replace(".zip", ""),
                 os.path.basename(path_cnn).replace(".zip", "")),
-        save_path="results/compare_B/noise_robustness.png",
+        save_path="results/cnn_ablation/noise_robustness.png",
     )
     env_no_cnn.close(); env_cnn.close()
 
-    print("\nAll comparisons complete.")
-    print("Results in results/compare_A/ and results/compare_B/")
+    # ── Bradykinesia Ablation: deg_cnn vs brady_deg_cnn ───────────────────
+    if os.path.exists(path_deg_cnn):
+        run_comparison(
+            "Bradykinesia Ablation",
+            path_deg_cnn, path_cnn,
+            healthy_path,
+            cnn_a=True, cnn_b=True,
+            out_dir="results/bradykinesia_ablation",
+            angle_edges=angle_edges,
+        )
+    else:
+        print(f"\nSkipping bradykinesia ablation — {path_deg_cnn} not found.")
+        print("  Train with: python train_exo.py --no-bradykinesia --cnn")
+
+    # ── ExtraObs Ablation: brady (no extra) vs brady (extra) ──────────────
+    run_comparison(
+        "ExtraObs Ablation",
+        path_brady, path_extraobs,
+        healthy_path,
+        cnn_a=False, cnn_b=False,
+        out_dir="results/extraobs_ablation",
+        angle_edges=angle_edges,
+        extra_obs_a=False, extra_obs_b=True,
+    )
+
+    print("\n" + "=" * 60)
+    print("All ablation comparisons complete.")
+    print("  results/cnn_ablation/")
+    print("  results/bradykinesia_ablation/  (if policy_deg_cnn.zip available)")
+    print("  results/extraobs_ablation/")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
