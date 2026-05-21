@@ -107,11 +107,19 @@ class CombinedExoOnlyWrapper(gym.Env):
         base_high = full_space.high[: self._exo_obs_dim]
 
         if extra_obs:
-            # Append: avg_mf [0,1], force_scale [0.6,1.0], activation_slowdown [1.0,1.4]
-            # force_scale=1.0 and activation_slowdown=1.0 when bradykinesia is off,
-            # so the bounds cover both the enabled and disabled cases.
-            extra_low  = np.array([0.0, 0.6, 1.0], dtype=np.float32)
-            extra_high = np.array([1.0, 1.0, 1.4], dtype=np.float32)
+            # avg_mf [0, 1]
+            # force_scale: range low → max(range high, 1.0) covers brady-off (1.0) too
+            # activation_slowdown: min(range low, 1.0) → range high covers brady-off (1.0) too
+            extra_low  = np.array([
+                0.0,
+                float(force_scale_range[0]),
+                min(float(activation_slowdown_range[0]), 1.0),
+            ], dtype=np.float32)
+            extra_high = np.array([
+                1.0,
+                max(float(force_scale_range[1]), 1.0),
+                float(activation_slowdown_range[1]),
+            ], dtype=np.float32)
             obs_low  = np.concatenate([base_low,  extra_low])
             obs_high = np.concatenate([base_high, extra_high])
         else:
@@ -172,11 +180,16 @@ class CombinedExoOnlyWrapper(gym.Env):
         return raw[: self._exo_obs_dim].astype(np.float32)
 
     def _build_obs(self, raw: np.ndarray) -> np.ndarray:
-        """Build the full exo observation, appending extra state if requested."""
+        """Build the full exo observation, appending extra state if requested.
+
+        Matches the original CombinedExoOnlyWrapper._get_extended_obs pattern:
+        base_obs + avg_mf (scalar) + [force_scale, activation_slowdown]
+        """
         base = self._exo_obs(raw)
         if not self.extra_obs:
             return base
-        avg_mf = float(np.mean(self.base_env.unwrapped.muscle_fatigue.MF))
+        mf_values = self.base_env.unwrapped.muscle_fatigue.MF.copy().astype(np.float32)
+        avg_mf = np.mean(mf_values)
         extra = np.array(
             [avg_mf, self.force_scale, self.activation_slowdown],
             dtype=np.float32,
