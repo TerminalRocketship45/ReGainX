@@ -369,7 +369,7 @@ def run_comparison(
 
     print(f"\n  Results saved to {out_dir}/")
     env_a.close(); env_b.close(); h_env_a.close(); h_env_b.close()
-    return env_a, env_b, policy_a, policy_b, trials_a, trials_b
+    return policy_a, policy_b
 
 
 def main():
@@ -406,7 +406,7 @@ def main():
     )
 
     # Comparison B
-    _, _, policy_brady, policy_cnn, _, _ = run_comparison(
+    policy_brady, policy_cnn = run_comparison(
         "Comparison B",
         path_brady, path_cnn,
         healthy_path,
