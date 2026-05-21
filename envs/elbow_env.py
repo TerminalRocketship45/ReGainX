@@ -52,6 +52,7 @@ class CombinedExoOnlyWrapper(gym.Env):
         bradykinesia: bool = False,
         smart_reset: bool = True,
         hide_pose_err: bool = True,
+        extra_obs: bool = False,
         force_scale_range: tuple = (0.6, 0.9),
         activation_slowdown_range: tuple = (1.1, 1.4),
     ):
@@ -62,6 +63,7 @@ class CombinedExoOnlyWrapper(gym.Env):
         self.bradykinesia = bradykinesia
         self.smart_reset = smart_reset
         self.hide_pose_err = hide_pose_err
+        self.extra_obs = extra_obs
         self.force_scale_range = force_scale_range
         self.activation_slowdown_range = activation_slowdown_range
 
@@ -100,11 +102,24 @@ class CombinedExoOnlyWrapper(gym.Env):
             dtype=np.float32,
         )
 
-        # Observation: sliced from the base env observation space
+        # Base observation slice
+        base_low  = full_space.low[: self._exo_obs_dim]
+        base_high = full_space.high[: self._exo_obs_dim]
+
+        if extra_obs:
+            # Append: avg_mf [0,1], force_scale [0.6,1.0], activation_slowdown [1.0,1.4]
+            # force_scale=1.0 and activation_slowdown=1.0 when bradykinesia is off,
+            # so the bounds cover both the enabled and disabled cases.
+            extra_low  = np.array([0.0, 0.6, 1.0], dtype=np.float32)
+            extra_high = np.array([1.0, 1.0, 1.4], dtype=np.float32)
+            obs_low  = np.concatenate([base_low,  extra_low])
+            obs_high = np.concatenate([base_high, extra_high])
+        else:
+            obs_low  = base_low
+            obs_high = base_high
+
         self.observation_space = gym.spaces.Box(
-            low=full_space.low[: self._exo_obs_dim],
-            high=full_space.high[: self._exo_obs_dim],
-            dtype=np.float32,
+            low=obs_low, high=obs_high, dtype=np.float32
         )
 
         # If not using smart_reset, let the base env handle fatigue randomly
@@ -156,6 +171,18 @@ class CombinedExoOnlyWrapper(gym.Env):
         """Return the slice of raw obs that the exo policy receives."""
         return raw[: self._exo_obs_dim].astype(np.float32)
 
+    def _build_obs(self, raw: np.ndarray) -> np.ndarray:
+        """Build the full exo observation, appending extra state if requested."""
+        base = self._exo_obs(raw)
+        if not self.extra_obs:
+            return base
+        avg_mf = float(np.mean(self.base_env.unwrapped.muscle_fatigue.MF))
+        extra = np.array(
+            [avg_mf, self.force_scale, self.activation_slowdown],
+            dtype=np.float32,
+        )
+        return np.concatenate([base, extra])
+
     def _frozen_obs(self, raw: np.ndarray) -> np.ndarray:
         """Return the slice of raw obs that the frozen muscle policy receives."""
         return raw[: self._base_obs_dim].astype(np.float32)
@@ -205,7 +232,7 @@ class CombinedExoOnlyWrapper(gym.Env):
 
         # Re-fetch obs after target + fatigue modifications
         raw_obs = self._current_raw_obs()
-        return self._exo_obs(raw_obs), info
+        return self._build_obs(raw_obs), info
 
     def step(self, exo_action):
         """
@@ -226,7 +253,7 @@ class CombinedExoOnlyWrapper(gym.Env):
         full_action = np.concatenate([exo_action, muscle_actions])
 
         next_raw, reward, done, truncated, info = self.base_env.step(full_action)
-        return self._exo_obs(next_raw), float(reward), done, truncated, info
+        return self._build_obs(next_raw), float(reward), done, truncated, info
 
     def render(self, *args, **kwargs):
         return self.base_env.render(*args, **kwargs)

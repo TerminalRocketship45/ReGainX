@@ -1,14 +1,16 @@
 """
-Train an exoskeleton policy with configurable impairment and CNN settings.
+Train an exoskeleton policy with configurable impairment, CNN, and extra-obs settings.
 
 Bradykinesia is ON by default. Use --no-bradykinesia to train on fatigue only.
+--extraobs appends avg_mf, force_scale, and activation_slowdown to the observation.
 
 Usage:
-    python train_exo.py                          # brady + degeneration, no CNN (default)
-    python train_exo.py --no-bradykinesia        # degeneration only, no CNN
-    python train_exo.py --cnn                    # brady + degeneration + CNN
-    python train_exo.py --no-bradykinesia --cnn  # degeneration only + CNN
-    python train_exo.py --timesteps 500000       # custom timestep count
+    python train_exo.py                                    # brady + deg, no CNN
+    python train_exo.py --no-bradykinesia                  # deg only, no CNN
+    python train_exo.py --cnn                              # brady + deg + CNN
+    python train_exo.py --no-bradykinesia --cnn            # deg only + CNN
+    python train_exo.py --cnn --extraobs                   # brady + deg + CNN + extra obs
+    python train_exo.py --timesteps 500000                 # custom timestep count
 
 Requires:
     policies/healthy_policy.zip   (from train_healthy.py)
@@ -19,6 +21,8 @@ Policy naming:
     policy_deg.zip
     policy_brady_deg_cnn.zip
     policy_deg_cnn.zip
+    policy_brady_deg_cnn_extraobs.zip
+    policy_deg_cnn_extraobs.zip
 """
 
 import argparse
@@ -51,10 +55,11 @@ SB3_DEFAULTS = {
 }
 
 
-def policy_name(bradykinesia: bool, cnn: bool) -> str:
+def policy_name(bradykinesia: bool, cnn: bool, extraobs: bool = False) -> str:
     brady = "brady_deg" if bradykinesia else "deg"
-    suffix = "_cnn" if cnn else ""
-    return f"policy_{brady}{suffix}"
+    cnn_suffix   = "_cnn"      if cnn      else ""
+    extra_suffix = "_extraobs" if extraobs else ""
+    return f"policy_{brady}{cnn_suffix}{extra_suffix}"
 
 
 def load_params() -> dict:
@@ -67,7 +72,7 @@ def load_params() -> dict:
     return SB3_DEFAULTS.copy()
 
 
-def build_env(bradykinesia: bool, cnn: bool):
+def build_env(bradykinesia: bool, cnn: bool, extraobs: bool = False):
     base = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
     env = CombinedExoOnlyWrapper(
         base,
@@ -75,6 +80,7 @@ def build_env(bradykinesia: bool, cnn: bool):
         bradykinesia=bradykinesia,
         smart_reset=True,
         hide_pose_err=True,
+        extra_obs=extraobs,
     )
     if cnn:
         env = TemporalStackWrapper(env, window=20)
@@ -166,20 +172,22 @@ def main():
     parser.set_defaults(bradykinesia=True)
     parser.add_argument("--cnn", action="store_true",
                         help="Use 2D temporal CNN feature extractor")
+    parser.add_argument("--extraobs", action="store_true",
+                        help="Append avg_mf, force_scale, activation_slowdown to observation")
     parser.add_argument("--timesteps", type=int, default=1_000_000,
                         help="Total training timesteps (default: 1,000,000)")
     args = parser.parse_args()
 
-    pname = policy_name(args.bradykinesia, args.cnn)
+    pname = policy_name(args.bradykinesia, args.cnn, args.extraobs)
     params = load_params()
 
     print("=" * 60)
     print(f"Training: {pname}")
-    print(f"  bradykinesia={args.bradykinesia}  cnn={args.cnn}")
+    print(f"  bradykinesia={args.bradykinesia}  cnn={args.cnn}  extraobs={args.extraobs}")
     print(f"  timesteps={args.timesteps:,}")
     print("=" * 60)
 
-    env = build_env(args.bradykinesia, args.cnn)
+    env = build_env(args.bradykinesia, args.cnn, args.extraobs)
     log_dir = f"tensorboard/{pname}/"
     model = build_model(env, params, args.cnn, log_dir)
 
