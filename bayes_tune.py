@@ -1,17 +1,17 @@
 """
 Bayesian hyperparameter optimisation for the exo PPO policy.
-Run ONCE after train_healthy.py. Saves best_params.json for all train_exo.py runs.
 
 Usage:
-    python bayes_tune.py              # run/continue optimisation
-    python bayes_tune.py --reset      # delete old study DB and start fresh
+    python bayes_tune.py              # MLP tuning (brady+deg env)
+    python bayes_tune.py --cnn        # CNN tuning — separate DB and output file
+    python bayes_tune.py --reset      # delete study DB and start fresh
+    python bayes_tune.py --cnn --reset
 
-Requires: policies/healthy_policy.zip (from train_healthy.py)
-Output:   best_params.json, bayes_study.db, plots/bayes/*.png
+MLP output : best_params.json      (used by train_exo.py without --cnn)
+CNN output : best_params_cnn.json  (used by train_exo.py with --cnn)
 
-The MedianPruner cuts trials that fall below the median of earlier trials
-at the same step. PruningCallback reports intermediate rewards every
-PRUNE_EVAL_FREQ steps so the pruner has data to act on.
+The CNN search space uses a lower learning-rate ceiling and larger n_steps
+options since CNNs need smaller gradients and longer rollouts than MLPs.
 """
 
 import argparse
@@ -31,17 +31,22 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.evaluation import evaluate_policy
 
 from envs.elbow_env import CombinedExoOnlyWrapper
+from envs.temporal_buffer import TemporalStackWrapper
+from models.temporal_cnn import TemporalCNNExtractor
 
 HEALTHY_POLICY_PATH = "policies/healthy_policy.zip"
 TUNE_TIMESTEPS   = 75_000
 N_TRIALS         = 20
-N_EVAL_EPISODES  = 10    # final evaluation per trial
-PRUNE_EVAL_EP    = 5     # episodes per pruner checkpoint (faster)
-PRUNE_EVAL_FREQ  = 10_000  # steps between pruner checkpoints
-STUDY_DB         = "sqlite:///bayes_study.db"
-STUDY_NAME       = "exo_ppo_tuning"
-OUTPUT_PATH      = "best_params.json"
-PLOT_DIR         = "plots/bayes"
+N_EVAL_EPISODES  = 10
+PRUNE_EVAL_EP    = 5
+PRUNE_EVAL_FREQ  = 10_000
+
+# These are overridden in __main__ based on --cnn flag
+_USE_CNN    = False
+_STUDY_DB   = "sqlite:///bayes_study.db"
+_STUDY_NAME = "exo_ppo_tuning"
+_OUTPUT_PATH = "best_params.json"
+_PLOT_DIR    = "plots/bayes"
 
 PARAM_LABELS = {
     "learning_rate": "Learning Rate",
@@ -57,13 +62,16 @@ PARAM_LABELS = {
 
 def make_env():
     base = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
-    return CombinedExoOnlyWrapper(
+    env = CombinedExoOnlyWrapper(
         base,
         frozen_policy_path=HEALTHY_POLICY_PATH,
         bradykinesia=True,
         smart_reset=True,
         hide_pose_err=True,
     )
+    if _USE_CNN:
+        env = TemporalStackWrapper(env, window=20)
+    return env
 
 
 # ── Pruning callback ──────────────────────────────────────────────────────────
@@ -100,12 +108,27 @@ class PruningCallback(BaseCallback):
 # ── Objective ─────────────────────────────────────────────────────────────────
 
 def objective(trial: optuna.Trial) -> float:
-    lr         = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
-    n_steps    = trial.suggest_categorical("n_steps", [512, 1024, 2048])
-    batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+    if _USE_CNN:
+        # CNN needs lower LR and longer rollouts than MLP
+        lr         = trial.suggest_float("learning_rate", 1e-5, 3e-4, log=True)
+        n_steps    = trial.suggest_categorical("n_steps", [1024, 2048, 4096])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+    else:
+        lr         = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
+        n_steps    = trial.suggest_categorical("n_steps", [512, 1024, 2048])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+
     ent_coef   = trial.suggest_float("ent_coef", 1e-4, 0.1, log=True)
     gamma      = trial.suggest_float("gamma", 0.95, 0.999)
     clip_range = trial.suggest_float("clip_range", 0.1, 0.4)
+
+    policy_kwargs = None
+    if _USE_CNN:
+        policy_kwargs = dict(
+            features_extractor_class=TemporalCNNExtractor,
+            features_extractor_kwargs=dict(features_dim=256),
+            net_arch=dict(pi=[256, 128], vf=[256, 128]),
+        )
 
     env      = make_env()
     eval_env = make_env()
@@ -118,6 +141,7 @@ def objective(trial: optuna.Trial) -> float:
             ent_coef=ent_coef,
             gamma=gamma,
             clip_range=clip_range,
+            policy_kwargs=policy_kwargs,
             verbose=0,
         )
         callback = PruningCallback(trial, eval_env, PRUNE_EVAL_FREQ, PRUNE_EVAL_EP)
@@ -322,30 +346,57 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Bayesian hyperparameter optimisation for exo PPO"
     )
+    parser.add_argument("--cnn", action="store_true",
+                        help="Tune for CNN policy (saves best_params_cnn.json)")
     parser.add_argument("--reset", action="store_true",
                         help="Delete existing study DB and start fresh")
     args = parser.parse_args()
+
+    # Set globals based on mode
+    _USE_CNN = args.cnn  # noqa: F811
+    if args.cnn:
+        _STUDY_DB    = "sqlite:///bayes_study_cnn.db"   # noqa: F811
+        _STUDY_NAME  = "exo_ppo_cnn_tuning"             # noqa: F811
+        _OUTPUT_PATH = "best_params_cnn.json"           # noqa: F811
+        _PLOT_DIR    = "plots/bayes_cnn"                # noqa: F811
+        db_file      = "bayes_study_cnn.db"
+    else:
+        _STUDY_DB    = "sqlite:///bayes_study.db"       # noqa: F811
+        _STUDY_NAME  = "exo_ppo_tuning"                 # noqa: F811
+        _OUTPUT_PATH = "best_params.json"               # noqa: F811
+        _PLOT_DIR    = "plots/bayes"                    # noqa: F811
+        db_file      = "bayes_study.db"
+
+    # Push into module-level names so make_env/objective see them
+    import sys
+    _mod = sys.modules[__name__]
+    _mod._USE_CNN    = _USE_CNN
+    _mod._STUDY_DB   = _STUDY_DB
+    _mod._STUDY_NAME = _STUDY_NAME
+    _mod._OUTPUT_PATH = _OUTPUT_PATH
+    _mod._PLOT_DIR   = _PLOT_DIR
 
     if not os.path.exists(HEALTHY_POLICY_PATH):
         raise FileNotFoundError(
             f"Run train_healthy.py first — {HEALTHY_POLICY_PATH} not found."
         )
 
-    if args.reset and os.path.exists("bayes_study.db"):
-        os.remove("bayes_study.db")
-        print("Deleted bayes_study.db — starting fresh.")
+    if args.reset and os.path.exists(db_file):
+        os.remove(db_file)
+        print(f"Deleted {db_file} — starting fresh.")
 
+    mode_label = "CNN" if args.cnn else "MLP"
     print("=" * 60)
-    print(f"Bayesian optimisation — {N_TRIALS} trials x {TUNE_TIMESTEPS:,} steps")
-    print(f"  bradykinesia=True  prune_eval_freq={PRUNE_EVAL_FREQ:,} steps")
+    print(f"Bayesian optimisation [{mode_label}] — {N_TRIALS} trials x {TUNE_TIMESTEPS:,} steps")
+    print(f"  bradykinesia=True  output={_OUTPUT_PATH}")
     print("=" * 60)
 
     study = optuna.create_study(
         direction="maximize",
         sampler=TPESampler(seed=42),
         pruner=MedianPruner(n_startup_trials=5, n_warmup_steps=2),
-        storage=STUDY_DB,
-        study_name=STUDY_NAME,
+        storage=_STUDY_DB,
+        study_name=_STUDY_NAME,
         load_if_exists=True,
     )
     study.optimize(objective, n_trials=N_TRIALS, show_progress_bar=True)
@@ -354,11 +405,11 @@ if __name__ == "__main__":
     print(f"\nBest params: {best}")
     print(f"Best mean reward: {study.best_value:.4f}")
 
-    with open(OUTPUT_PATH, "w") as f:
+    with open(_OUTPUT_PATH, "w") as f:
         json.dump(best, f, indent=2)
-    print(f"Saved to {OUTPUT_PATH}")
+    print(f"Saved to {_OUTPUT_PATH}")
 
     print("\nGenerating visualisations...")
     plot_study(study)
-    print(f"Plots saved to {PLOT_DIR}/")
-    print("\nNext step: run train_exo.py")
+    print(f"Plots saved to {_PLOT_DIR}/")
+    print(f"\nNext step: python train_exo.py {'--cnn' if args.cnn else ''}")

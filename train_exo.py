@@ -40,8 +40,9 @@ from envs.temporal_buffer import TemporalStackWrapper
 from models.temporal_cnn import TemporalCNNExtractor
 from utils import save_video, add_text_to_frame
 
-HEALTHY_POLICY_PATH = "policies/healthy_policy.zip"
-PARAMS_PATH = "best_params.json"
+HEALTHY_POLICY_PATH  = "policies/healthy_policy.zip"
+PARAMS_PATH          = "best_params.json"
+PARAMS_PATH_CNN      = "best_params_cnn.json"
 POST_ANALYSIS_EPISODES = 30
 MAX_STEPS = 500
 
@@ -62,13 +63,20 @@ def policy_name(bradykinesia: bool, cnn: bool, extraobs: bool = False) -> str:
     return f"policy_{brady}{cnn_suffix}{extra_suffix}"
 
 
-def load_params() -> dict:
-    if os.path.exists(PARAMS_PATH):
-        with open(PARAMS_PATH) as f:
+def load_params(cnn: bool = False) -> dict:
+    path = PARAMS_PATH_CNN if cnn else PARAMS_PATH
+    fallback = PARAMS_PATH  # always fall back to MLP params if CNN file missing
+    if os.path.exists(path):
+        with open(path) as f:
             params = json.load(f)
-        print(f"Loaded hyperparameters from {PARAMS_PATH}")
+        print(f"Loaded hyperparameters from {path}")
         return params
-    print(f"WARNING: {PARAMS_PATH} not found — using SB3 defaults. Run bayes_tune.py first.")
+    if cnn and os.path.exists(fallback):
+        with open(fallback) as f:
+            params = json.load(f)
+        print(f"WARNING: {path} not found — falling back to {fallback}. Run: python bayes_tune.py --cnn")
+        return params
+    print(f"WARNING: {path} not found — using SB3 defaults. Run bayes_tune.py{'  --cnn' if cnn else ''} first.")
     return SB3_DEFAULTS.copy()
 
 
@@ -179,7 +187,7 @@ def main():
     args = parser.parse_args()
 
     pname = policy_name(args.bradykinesia, args.cnn, args.extraobs)
-    params = load_params()
+    params = load_params(cnn=args.cnn)
 
     print("=" * 60)
     print(f"Training: {pname}")
