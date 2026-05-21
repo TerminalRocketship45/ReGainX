@@ -150,7 +150,8 @@ def run_trial(
         total_reward += reward
         exo_angles.append(float(base_env.base_env.unwrapped.sim.data.qpos[0]))
 
-        solved = base_env.base_env.unwrapped.rwd_dict.get("solved", np.array([False]))[0]
+        solved_val = base_env.base_env.unwrapped.rwd_dict.get("solved", False)
+        solved = bool(np.asarray(solved_val).flat[0])
         if solved and not goal_achieved:
             goal_achieved = True
             goal_time = step * base_env.base_env.unwrapped.dt
