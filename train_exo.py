@@ -80,6 +80,9 @@ class RewardLoggerCallback(BaseCallback):
         with open(csv_path, "w") as f:
             f.write("timestep,mean_reward\n")
 
+    def _on_step(self) -> bool:
+        return True
+
     def _on_rollout_end(self) -> bool:
         if len(self.model.ep_info_buffer) > 0:
             mean_r = float(np.mean([ep["r"] for ep in self.model.ep_info_buffer]))
