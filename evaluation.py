@@ -32,7 +32,6 @@ from stable_baselines3 import PPO
 
 from envs.elbow_env import CombinedExoOnlyWrapper
 from envs.temporal_buffer import TemporalStackWrapper
-from models.temporal_cnn import TemporalCNNExtractor
 from utils import (
     compute_severity, get_angle_bin, get_severity_quartile,
     plot_confusion_matrix, add_text_to_frame, save_video,
@@ -334,7 +333,7 @@ def main():
             exo_path = "policies/policy_brady_deg.zip"
 
     policy_basename = os.path.basename(exo_path).replace(".zip", "")
-    is_cnn      = "cnn"      in policy_basename
+    is_lstm     = "lstm"     in policy_basename
     extra_obs   = args.extraobs or ("extraobs" in policy_basename)
 
     if args.out_dir:
@@ -345,7 +344,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print(f"  Policy   : {exo_path}")
-    print(f"  CNN      : {is_cnn}")
+    print(f"  LSTM     : {is_lstm}")
     print(f"  ExtraObs : {extra_obs}")
     print(f"  Out dir  : {out_dir}")
 
@@ -362,7 +361,7 @@ def main():
         hide_pose_err=True,
         extra_obs=extra_obs,
     )
-    if is_cnn:
+    if is_lstm:
         exo_env = TemporalStackWrapper(exo_env, window=20)
 
     # Angle edges from actual env range

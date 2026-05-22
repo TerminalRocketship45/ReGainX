@@ -2,15 +2,15 @@
 Systematic ablation comparison of trained exo policies.
 
 Three ablation studies — all evaluations on brady+deg patients:
-  CNN ablation     : policy_brady_deg vs policy_brady_deg_cnn  → results/cnn_ablation/
-  Brady ablation   : policy_deg_cnn vs policy_brady_deg_cnn   → results/bradykinesia_ablation/
-  ExtraObs ablation: policy_brady_deg vs policy_brady_deg_extraobs → results/extraobs_ablation/
+  LSTM ablation    : policy_brady_deg vs policy_brady_deg_lstm          → results/lstm_ablation/
+  Brady ablation   : policy_deg_lstm  vs policy_brady_deg_lstm          → results/bradykinesia_ablation/
+  ExtraObs ablation: policy_brady_deg_lstm vs policy_brady_deg_lstm_extraobs → results/extraobs_ablation/
 
 Usage:
     python compare.py
+    python compare.py --healthy ... --brady ... --lstm ... --deg-lstm ... --extraobs-pol ...
 
-The script prompts for all policy paths interactively (defaults provided).
-Noise robustness test is included only in the CNN ablation comparison.
+Noise robustness test is included only in the LSTM ablation comparison.
 """
 
 import os
@@ -27,7 +27,6 @@ from stable_baselines3 import PPO
 
 from envs.elbow_env import CombinedExoOnlyWrapper
 from envs.temporal_buffer import TemporalStackWrapper
-from models.temporal_cnn import TemporalCNNExtractor
 from utils import (
     compute_severity, get_angle_bin, get_severity_quartile,
     plot_confusion_matrix, save_video, add_text_to_frame,
@@ -50,7 +49,7 @@ def make_healthy_env():
     return gym.make("myoElbowPose1D6MRandom-v0")
 
 
-def make_exo_env(healthy_path: str, cnn: bool = False, extra_obs: bool = False):
+def make_exo_env(healthy_path: str, lstm: bool = False, extra_obs: bool = False):
     base = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
     env = CombinedExoOnlyWrapper(
         base,
@@ -60,7 +59,7 @@ def make_exo_env(healthy_path: str, cnn: bool = False, extra_obs: bool = False):
         hide_pose_err=True,
         extra_obs=extra_obs,
     )
-    if cnn:
+    if lstm:
         env = TemporalStackWrapper(env, window=20)
     return env
 
@@ -81,7 +80,8 @@ def run_trial(
     """
     rng = np.random.RandomState(seed)
 
-    base_env = exo_env.env if isinstance(exo_env, TemporalStackWrapper) else exo_env
+    is_lstm = isinstance(exo_env, TemporalStackWrapper)
+    base_env = exo_env.env if is_lstm else exo_env
     low = float(base_env.base_env.unwrapped.target_jnt_range[0, 0])
     high = float(base_env.base_env.unwrapped.target_jnt_range[0, 1])
     target_angle = rng.uniform(low, high)
@@ -129,7 +129,7 @@ def run_trial(
     base_env.base_env.unwrapped.sim.forward()
 
     # Rebuild obs after seeded patient setup (ensures force_scale/activation_slowdown are current)
-    if isinstance(exo_env, TemporalStackWrapper):
+    if is_lstm:
         raw = base_env._current_raw_obs()
         exo_obs_flat = base_env._exo_obs(raw)
         exo_env._buffer.clear()
@@ -304,7 +304,7 @@ def plot_noise_robustness(env_a, policy_a: PPO, env_b, policy_b: PPO,
         ax.plot(NOISE_LEVELS, values, marker="o", label=lbl)
     ax.set_xlabel("Observation Noise sigma (Gaussian)")
     ax.set_ylabel("Mean Reward")
-    ax.set_title("Noise Robustness: CNN vs No-CNN")
+    ax.set_title("Noise Robustness: LSTM vs No-LSTM")
     ax.legend()
     plt.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -319,8 +319,8 @@ def run_comparison(
     policy_path_a: str,
     policy_path_b: str,
     healthy_path: str,
-    cnn_a: bool,
-    cnn_b: bool,
+    lstm_a: bool,
+    lstm_b: bool,
     out_dir: str,
     angle_edges: np.ndarray,
     extra_obs_a: bool = False,
@@ -340,8 +340,8 @@ def run_comparison(
     policy_b = PPO.load(policy_path_b)
     healthy_policy = PPO.load(healthy_path)
 
-    env_a = make_exo_env(healthy_path, cnn=cnn_a, extra_obs=extra_obs_a)
-    env_b = make_exo_env(healthy_path, cnn=cnn_b, extra_obs=extra_obs_b)
+    env_a = make_exo_env(healthy_path, lstm=lstm_a, extra_obs=extra_obs_a)
+    env_b = make_exo_env(healthy_path, lstm=lstm_b, extra_obs=extra_obs_b)
     h_env_a = make_healthy_env()
     h_env_b = make_healthy_env()
 
@@ -387,10 +387,10 @@ def main():
     import argparse as _ap
     parser = _ap.ArgumentParser(description="reGainX ablation comparisons")
     parser.add_argument("--healthy",      default="", help="Path to healthy policy")
-    parser.add_argument("--brady",        default="", help="Path to policy_brady_deg")
-    parser.add_argument("--cnn",          default="", help="Path to policy_brady_deg_cnn")
-    parser.add_argument("--deg-cnn",      default="", help="Path to policy_deg_cnn")
-    parser.add_argument("--extraobs-pol", default="", help="Path to policy_brady_deg_extraobs")
+    parser.add_argument("--brady",        default="", help="Path to policy_brady_deg (MLP)")
+    parser.add_argument("--lstm",         default="", help="Path to policy_brady_deg_lstm")
+    parser.add_argument("--deg-lstm",     default="", help="Path to policy_deg_lstm")
+    parser.add_argument("--extraobs-pol", default="", help="Path to policy_brady_deg_lstm_extraobs")
     cli = parser.parse_args()
 
     print("=" * 60)
@@ -398,14 +398,14 @@ def main():
     print("=" * 60)
     print("Three ablation studies — all evaluated on brady+deg patients.\n")
 
-    healthy_path  = cli.healthy      or _prompt("Healthy policy path",              "policies/healthy_policy.zip")
-    path_brady    = cli.brady        or _prompt("brady+deg (no CNN) policy path",   "policies/policy_brady_deg.zip")
-    path_cnn      = cli.cnn         or _prompt("brady+deg + CNN policy path",       "policies/policy_brady_deg_cnn.zip")
-    path_deg_cnn  = cli.deg_cnn     or _prompt("deg-only + CNN policy path",        "policies/policy_deg_cnn.zip")
-    path_extraobs = cli.extraobs_pol or _prompt("brady+deg + extraobs policy path", "policies/policy_brady_deg_extraobs.zip")
+    healthy_path  = cli.healthy      or _prompt("Healthy policy path",                     "policies/healthy_policy.zip")
+    path_brady    = cli.brady        or _prompt("brady+deg MLP policy path",               "policies/policy_brady_deg.zip")
+    path_lstm     = cli.lstm         or _prompt("brady+deg LSTM policy path",              "policies/policy_brady_deg_lstm.zip")
+    path_deg_lstm = cli.deg_lstm     or _prompt("deg-only LSTM policy path",               "policies/policy_deg_lstm.zip")
+    path_extraobs = cli.extraobs_pol or _prompt("brady+deg LSTM+extraobs policy path",     "policies/policy_brady_deg_lstm_extraobs.zip")
 
     # Verify required files exist
-    missing = [p for p in [healthy_path, path_brady, path_cnn, path_extraobs]
+    missing = [p for p in [healthy_path, path_brady, path_lstm, path_extraobs]
                if not os.path.exists(p)]
     if missing:
         print("\nERROR — missing policy files:")
@@ -419,48 +419,48 @@ def main():
     tmp_env.close()
     angle_edges = np.linspace(low, high, ANGLE_BINS + 1)
 
-    # ── CNN Ablation: brady (no CNN) vs brady (CNN) ────────────────────────
-    policy_brady, policy_cnn = run_comparison(
-        "CNN Ablation",
-        path_brady, path_cnn,
+    # ── LSTM Ablation: brady MLP vs brady LSTM ────────────────────────────
+    policy_brady, policy_lstm = run_comparison(
+        "LSTM Ablation",
+        path_brady, path_lstm,
         healthy_path,
-        cnn_a=False, cnn_b=True,
-        out_dir="results/cnn_ablation",
+        lstm_a=False, lstm_b=True,
+        out_dir="results/lstm_ablation",
         angle_edges=angle_edges,
     )
 
-    print("\nRunning noise robustness test for CNN ablation...")
-    env_no_cnn = make_exo_env(healthy_path, cnn=False)
-    env_cnn    = make_exo_env(healthy_path, cnn=True)
+    print("\nRunning noise robustness test for LSTM ablation...")
+    env_no_lstm = make_exo_env(healthy_path, lstm=False)
+    env_lstm    = make_exo_env(healthy_path, lstm=True)
     plot_noise_robustness(
-        env_no_cnn, policy_brady,
-        env_cnn,    policy_cnn,
+        env_no_lstm, policy_brady,
+        env_lstm,    policy_lstm,
         labels=(os.path.basename(path_brady).replace(".zip", ""),
-                os.path.basename(path_cnn).replace(".zip", "")),
-        save_path="results/cnn_ablation/noise_robustness.png",
+                os.path.basename(path_lstm).replace(".zip", "")),
+        save_path="results/lstm_ablation/noise_robustness.png",
     )
-    env_no_cnn.close(); env_cnn.close()
+    env_no_lstm.close(); env_lstm.close()
 
-    # ── Bradykinesia Ablation: deg_cnn vs brady_deg_cnn ───────────────────
-    if os.path.exists(path_deg_cnn):
+    # ── Bradykinesia Ablation: deg_lstm vs brady_deg_lstm ─────────────────
+    if os.path.exists(path_deg_lstm):
         run_comparison(
             "Bradykinesia Ablation",
-            path_deg_cnn, path_cnn,
+            path_deg_lstm, path_lstm,
             healthy_path,
-            cnn_a=True, cnn_b=True,
+            lstm_a=True, lstm_b=True,
             out_dir="results/bradykinesia_ablation",
             angle_edges=angle_edges,
         )
     else:
-        print(f"\nSkipping bradykinesia ablation — {path_deg_cnn} not found.")
-        print("  Train with: python train_exo.py --no-bradykinesia --cnn")
+        print(f"\nSkipping bradykinesia ablation — {path_deg_lstm} not found.")
+        print("  Train with: python train_exo.py --no-bradykinesia --lstm")
 
-    # ── ExtraObs Ablation: brady (no extra) vs brady (extra) ──────────────
+    # ── ExtraObs Ablation: brady LSTM (no extra) vs brady LSTM (extra) ────
     run_comparison(
         "ExtraObs Ablation",
-        path_brady, path_extraobs,
+        path_lstm, path_extraobs,
         healthy_path,
-        cnn_a=False, cnn_b=False,
+        lstm_a=True, lstm_b=True,
         out_dir="results/extraobs_ablation",
         angle_edges=angle_edges,
         extra_obs_a=False, extra_obs_b=True,
@@ -468,8 +468,8 @@ def main():
 
     print("\n" + "=" * 60)
     print("All ablation comparisons complete.")
-    print("  results/cnn_ablation/")
-    print("  results/bradykinesia_ablation/  (if policy_deg_cnn.zip available)")
+    print("  results/lstm_ablation/")
+    print("  results/bradykinesia_ablation/  (if policy_deg_lstm.zip available)")
     print("  results/extraobs_ablation/")
     print("=" * 60)
 

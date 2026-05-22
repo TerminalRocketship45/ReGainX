@@ -6,8 +6,8 @@ from collections import deque
 class TemporalStackWrapper(gym.Wrapper):
     """
     Maintains a rolling deque of the last `window` observations.
-    Returns stacked obs as (1, window, obs_dim) — channels-first for TemporalCNNExtractor.
-    Only instantiated when --cnn flag is active in train_exo.py / compare.py.
+    Returns stacked obs as (1, window, obs_dim) — channels-first for CNNLSTMExtractor.
+    Only instantiated when --lstm flag is active in train_exo.py / compare.py.
     """
 
     def __init__(self, env, window: int = 20):

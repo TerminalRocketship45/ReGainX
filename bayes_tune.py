@@ -3,12 +3,12 @@ Bayesian hyperparameter optimisation for the exo PPO policy.
 
 Usage:
     python bayes_tune.py              # MLP tuning (brady+deg env)
-    python bayes_tune.py --cnn        # CNN tuning — separate DB and output file
+    python bayes_tune.py --lstm        # CNN tuning — separate DB and output file
     python bayes_tune.py --reset      # delete study DB and start fresh
-    python bayes_tune.py --cnn --reset
+    python bayes_tune.py --lstm --reset
 
-MLP output : best_params.json      (used by train_exo.py without --cnn)
-CNN output : best_params_cnn.json  (used by train_exo.py with --cnn)
+MLP output : best_params.json      (used by train_exo.py without --lstm)
+CNN output : best_params_lstm.json  (used by train_exo.py with --lstm)
 
 The CNN search space uses a lower learning-rate ceiling and larger n_steps
 options since CNNs need smaller gradients and longer rollouts than MLPs.
@@ -32,7 +32,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 
 from envs.elbow_env import CombinedExoOnlyWrapper
 from envs.temporal_buffer import TemporalStackWrapper
-from models.temporal_cnn import TemporalCNNExtractor
+from models.cnn_lstm import CNNLSTMExtractor
 
 HEALTHY_POLICY_PATH = "policies/healthy_policy.zip"
 TUNE_TIMESTEPS   = 75_000
@@ -41,7 +41,7 @@ N_EVAL_EPISODES  = 10
 PRUNE_EVAL_EP    = 5
 PRUNE_EVAL_FREQ  = 10_000
 
-# These are overridden in __main__ based on --cnn flag
+# These are overridden in __main__ based on --lstm flag
 _USE_CNN    = False
 _STUDY_DB   = "sqlite:///bayes_study.db"
 _STUDY_NAME = "exo_ppo_tuning"
@@ -125,7 +125,7 @@ def objective(trial: optuna.Trial) -> float:
     policy_kwargs = None
     if _USE_CNN:
         policy_kwargs = dict(
-            features_extractor_class=TemporalCNNExtractor,
+            features_extractor_class=CNNLSTMExtractor,
             features_extractor_kwargs=dict(features_dim=256),
             net_arch=dict(pi=[256, 128], vf=[256, 128]),
         )
@@ -346,8 +346,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Bayesian hyperparameter optimisation for exo PPO"
     )
-    parser.add_argument("--cnn", action="store_true",
-                        help="Tune for CNN policy (saves best_params_cnn.json)")
+    parser.add_argument("--lstm", action="store_true",
+                        help="Tune for CNN policy (saves best_params_lstm.json)")
     parser.add_argument("--reset", action="store_true",
                         help="Delete existing study DB and start fresh")
     args = parser.parse_args()
@@ -355,11 +355,11 @@ if __name__ == "__main__":
     # Set globals based on mode
     _USE_CNN = args.cnn  # noqa: F811
     if args.cnn:
-        _STUDY_DB    = "sqlite:///bayes_study_cnn.db"   # noqa: F811
-        _STUDY_NAME  = "exo_ppo_cnn_tuning"             # noqa: F811
-        _OUTPUT_PATH = "best_params_cnn.json"           # noqa: F811
-        _PLOT_DIR    = "plots/bayes_cnn"                # noqa: F811
-        db_file      = "bayes_study_cnn.db"
+        _STUDY_DB    = "sqlite:///bayes_study_lstm.db"   # noqa: F811
+        _STUDY_NAME  = "exo_ppo_lstm_tuning"             # noqa: F811
+        _OUTPUT_PATH = "best_params_lstm.json"           # noqa: F811
+        _PLOT_DIR    = "plots/bayes_lstm"                # noqa: F811
+        db_file      = "bayes_study_lstm.db"
     else:
         _STUDY_DB    = "sqlite:///bayes_study.db"       # noqa: F811
         _STUDY_NAME  = "exo_ppo_tuning"                 # noqa: F811
@@ -412,4 +412,4 @@ if __name__ == "__main__":
     print("\nGenerating visualisations...")
     plot_study(study)
     print(f"Plots saved to {_PLOT_DIR}/")
-    print(f"\nNext step: python train_exo.py {'--cnn' if args.cnn else ''}")
+    print(f"\nNext step: python train_exo.py {'--lstm' if args.cnn else ''}")

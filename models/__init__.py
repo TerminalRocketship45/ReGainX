@@ -1,3 +1,3 @@
-from .temporal_cnn import TemporalCNNExtractor
+from .cnn_lstm import CNNLSTMExtractor
 
-__all__ = ["TemporalCNNExtractor"]
+__all__ = ["CNNLSTMExtractor"]
