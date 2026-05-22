@@ -103,20 +103,14 @@ def policy_name(bradykinesia: bool, lstm: bool, extraobs: bool = False) -> str:
 def load_params(lstm: bool = False) -> dict:
     path     = PARAMS_PATH_LSTM if lstm else PARAMS_PATH
     defaults = LSTM_DEFAULTS    if lstm else SB3_DEFAULTS
-    fallback = PARAMS_PATH
 
     if os.path.exists(path):
         with open(path) as f:
             params = json.load(f)
         print(f"Loaded hyperparameters from {path}")
         return params
-    if lstm and os.path.exists(fallback):
-        with open(fallback) as f:
-            params = json.load(f)
-        print(f"WARNING: {path} not found — using {fallback}. Run: python bayes_tune.py --lstm")
-        return params
     flag = " --lstm" if lstm else ""
-    print(f"WARNING: {path} not found — using {'literature' if lstm else 'SB3'} defaults."
+    print(f"WARNING: {path} not found — using {'literature LSTM' if lstm else 'SB3'} defaults."
           f" Run: python bayes_tune.py{flag}")
     return defaults.copy()
 
@@ -145,6 +139,13 @@ def build_model(env, params: dict, lstm: bool, log_dir: str) -> PPO:
             net_arch=dict(pi=[256, 128], vf=[256, 128]),
         )
 
+    import sys, torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[train] Python:  {sys.executable}")                                                                                    
+    print(f"[train] PyTorch: {torch.__version__}")                                                                                 
+    print(f"[train] CUDA available: {torch.cuda.is_available()}")    
+    print(f"[train] Using device: {device}")
+
     return PPO(
         "MlpPolicy", env,
         learning_rate=params.get("learning_rate", SB3_DEFAULTS["learning_rate"]),
@@ -156,6 +157,7 @@ def build_model(env, params: dict, lstm: bool, log_dir: str) -> PPO:
         policy_kwargs=policy_kwargs,
         tensorboard_log=log_dir,
         verbose=1,
+        device=device,
     )
 
 
