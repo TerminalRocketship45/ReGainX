@@ -59,15 +59,18 @@ MLP_TIMESTEPS  = 1_000_000
 LSTM_TIMESTEPS = 2_000_000
 EVAL_TRIALS    = 32
 
+# Overridden by --test flag
+_TEST_MODE = False
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def run(cmd: list, label: str) -> None:
+def run(cmd: list, label: str, env=None) -> None:
     print(f"\n{'='*60}")
     print(f"[pipeline] {label}")
     print(f"  {' '.join(cmd)}")
     print(f"{'='*60}")
-    result = subprocess.run(cmd, check=False)
+    result = subprocess.run(cmd, check=False, env=env)
     if result.returncode != 0:
         print(f"[pipeline] WARNING: '{label}' exited with code {result.returncode}")
 
@@ -90,6 +93,8 @@ def _train_if_missing(policy_path: str, cmd_args: list, timesteps: int, label: s
     if os.path.exists(policy_path):
         print(f"[pipeline] Skipping: {policy_path} already exists.")
         return
+    if _TEST_MODE:
+        timesteps = 600
     run([PYTHON, "train_exo.py"] + cmd_args + ["--timesteps", str(timesteps)], label)
 
 
@@ -177,11 +182,12 @@ def stage_evaluate():
             continue
         basename = os.path.splitext(os.path.basename(policy_path))[0]
         out_dir  = f"results/eval_{basename}"
+        trials = 2 if _TEST_MODE else EVAL_TRIALS
         cmd = [
             PYTHON, "evaluation.py",
             "--exo-path",   policy_path,
             "--healthy-path", HEALTHY_PATH,
-            "--trials",     str(EVAL_TRIALS),
+            "--trials",     str(trials),
             "--out-dir",    out_dir,
         ]
         if extraobs:
@@ -204,6 +210,9 @@ def stage_compare():
             print(f"  {m}")
         return
 
+    env = os.environ.copy()
+    if _TEST_MODE:
+        env["REGAINX_COMPARE_TRIALS"] = "2"
     run([
         PYTHON, "compare.py",
         "--healthy",      HEALTHY_PATH,
@@ -211,12 +220,22 @@ def stage_compare():
         "--lstm",         POLICY_LSTM,
         "--deg-lstm",     POLICY_DEG_LSTM,
         "--extraobs-pol", POLICY_EXTRAOBS,
-    ], "All ablation comparisons")
+    ], "All ablation comparisons", env=env)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    global _TEST_MODE, MLP_TIMESTEPS, LSTM_TIMESTEPS, EVAL_TRIALS
+    import argparse as _ap
+    parser = _ap.ArgumentParser()
+    parser.add_argument("--test", action="store_true",
+                        help="Quick E2E smoke test: 600 timesteps, 2 eval trials")
+    args = parser.parse_args()
+    if args.test:
+        _TEST_MODE = True
+        print("[pipeline] TEST MODE — 600 timesteps, 2 eval trials per policy")
+
     print("=" * 60)
     print("reGainX — Full Pipeline")
     print(f"  Stage 1: Train any missing policies")

@@ -124,15 +124,14 @@ def run_eval_trial(
         return float(np.mean(base_env.base_env.unwrapped.muscle_fatigue.MF))
 
     def get_exo_obs():
+        raw = base_env._current_raw_obs()
+        obs_flat = base_env._build_obs(raw)  # includes extra dims when extra_obs=True
         if isinstance(exo_env, TemporalStackWrapper):
-            raw = base_env._current_raw_obs()
-            obs_flat = base_env._exo_obs(raw)
             exo_env._buffer.clear()
             for _ in range(exo_env.window):
-                exo_env._buffer.append(obs_flat.astype(np.float32, copy=False))
+                exo_env._buffer.append(obs_flat.copy())  # explicit copy — each entry independent
             return exo_env._stack()
-        # _build_obs handles both base and extra_obs=True cases
-        return base_env._build_obs(base_env._current_raw_obs())
+        return obs_flat
 
     # Track 1: Healthy
     healthy_env.reset()

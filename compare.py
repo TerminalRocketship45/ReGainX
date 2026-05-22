@@ -32,7 +32,7 @@ from utils import (
     plot_confusion_matrix, save_video, add_text_to_frame,
 )
 
-N_TRIALS = 30
+N_TRIALS = int(os.environ.get("REGAINX_COMPARE_TRIALS", "30"))
 MAX_STEPS = 500
 NOISE_LEVELS = [0.0, 0.02, 0.05, 0.1, 0.2, 0.4]
 NOISE_EPISODES_PER_LEVEL = 10
@@ -129,15 +129,15 @@ def run_trial(
     base_env.base_env.unwrapped.sim.forward()
 
     # Rebuild obs after seeded patient setup (ensures force_scale/activation_slowdown are current)
+    raw = base_env._current_raw_obs()
+    obs_flat = base_env._build_obs(raw)  # includes extra dims when extra_obs=True
     if is_lstm:
-        raw = base_env._current_raw_obs()
-        exo_obs_flat = base_env._exo_obs(raw)
         exo_env._buffer.clear()
         for _ in range(exo_env.window):
-            exo_env._buffer.append(exo_obs_flat.astype(np.float32, copy=False))
+            exo_env._buffer.append(obs_flat.copy())  # explicit copy — each entry independent
         exo_obs = exo_env._stack()
     else:
-        exo_obs = base_env._build_obs(base_env._current_raw_obs())
+        exo_obs = obs_flat
 
     exo_angles, latencies = [], []
     total_reward = 0.0
@@ -262,7 +262,7 @@ def plot_latency(trials_a: list, trials_b: list, labels: tuple, save_path: str) 
     lat_a = [ms for t in trials_a for ms in t["latency_ms"]]
     lat_b = [ms for t in trials_b for ms in t["latency_ms"]]
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.boxplot([lat_a, lat_b], labels=labels, patch_artist=True,
+    ax.boxplot([lat_a, lat_b], tick_labels=labels, patch_artist=True,
                boxprops=dict(facecolor="lightblue"))
     ax.set_ylabel("Inference Latency (ms)")
     ax.set_title("Per-Step Inference Latency")
