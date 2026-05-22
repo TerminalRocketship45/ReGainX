@@ -1,27 +1,31 @@
 """
 Full reGainX pipeline: train → chart → evaluate → compare.
 
-Trains the three CNN-LSTM policies (2M steps each), skipping already-trained
-MLP models. Generates a combined reward-curve chart for all models, runs
-evaluation.py for each policy, then runs all three ablation comparisons
-via compare.py.
+Trains all missing policies with the appropriate timestep budget, then
+generates a combined reward-curve chart, runs per-policy evaluations, and
+runs all three ablation comparisons via compare.py.
+
+Timestep budget:
+    MLP  policies (policy_brady_deg, policy_deg)            → 1,000,000 steps
+    LSTM policies (policy_brady_deg_lstm, policy_deg_lstm,
+                   policy_brady_deg_lstm_extraobs)           → 2,000,000 steps
 
 Usage:
     python pipeline.py
 
 Requires:
-    policies/healthy_policy.zip       (train_healthy.py)
-    policies/policy_brady_deg.zip     (train_exo.py)
-    policies/policy_deg.zip           (train_exo.py --no-bradykinesia)
+    policies/healthy_policy.zip   (from train_healthy.py)
 
-Trains (if not present):
+Trains any of the following that are missing:
+    policies/policy_brady_deg.zip
+    policies/policy_deg.zip
     policies/policy_brady_deg_lstm.zip
     policies/policy_deg_lstm.zip
     policies/policy_brady_deg_lstm_extraobs.zip
 
 Outputs:
     results/pipeline/reward_curves_all_models.png
-    results/eval_policy_*/                 (per-policy evaluation)
+    results/eval_policy_*/
     results/lstm_ablation/
     results/bradykinesia_ablation/
     results/extraobs_ablation/
@@ -51,6 +55,7 @@ LOG_LSTM     = "logs/policy_brady_deg_lstm_rewards.csv"
 LOG_DEG_LSTM = "logs/policy_deg_lstm_rewards.csv"
 LOG_EXTRAOBS = "logs/policy_brady_deg_lstm_extraobs_rewards.csv"
 
+MLP_TIMESTEPS  = 1_000_000
 LSTM_TIMESTEPS = 2_000_000
 EVAL_TRIALS    = 32
 
@@ -79,32 +84,35 @@ def load_csv(path: str):
     return data[:, 0], data[:, 1]
 
 
-# ── Stage 1: Train LSTM policies ─────────────────────────────────────────────
+# ── Stage 1: Train all missing policies ──────────────────────────────────────
+
+def _train_if_missing(policy_path: str, cmd_args: list, timesteps: int, label: str) -> None:
+    if os.path.exists(policy_path):
+        print(f"[pipeline] Skipping: {policy_path} already exists.")
+        return
+    run([PYTHON, "train_exo.py"] + cmd_args + ["--timesteps", str(timesteps)], label)
+
 
 def stage_train():
     print("\n" + "=" * 60)
-    print("[pipeline] STAGE 1 — Train LSTM policies")
+    print("[pipeline] STAGE 1 — Train missing policies")
+    print(f"  MLP  budget: {MLP_TIMESTEPS:,} steps")
+    print(f"  LSTM budget: {LSTM_TIMESTEPS:,} steps")
     print("=" * 60)
 
-    if not os.path.exists(POLICY_LSTM):
-        run([PYTHON, "train_exo.py", "--lstm", "--timesteps", str(LSTM_TIMESTEPS)],
-            "Train policy_brady_deg_lstm")
-    else:
-        print(f"[pipeline] Skipping: {POLICY_LSTM} already exists.")
+    # MLP policies (1M steps)
+    _train_if_missing(POLICY_BRADY, [],
+                      MLP_TIMESTEPS, "Train policy_brady_deg (MLP)")
+    _train_if_missing(POLICY_DEG,   ["--no-bradykinesia"],
+                      MLP_TIMESTEPS, "Train policy_deg (MLP)")
 
-    if not os.path.exists(POLICY_DEG_LSTM):
-        run([PYTHON, "train_exo.py", "--no-bradykinesia", "--lstm",
-             "--timesteps", str(LSTM_TIMESTEPS)],
-            "Train policy_deg_lstm")
-    else:
-        print(f"[pipeline] Skipping: {POLICY_DEG_LSTM} already exists.")
-
-    if not os.path.exists(POLICY_EXTRAOBS):
-        run([PYTHON, "train_exo.py", "--lstm", "--extraobs",
-             "--timesteps", str(LSTM_TIMESTEPS)],
-            "Train policy_brady_deg_lstm_extraobs")
-    else:
-        print(f"[pipeline] Skipping: {POLICY_EXTRAOBS} already exists.")
+    # LSTM policies (2M steps)
+    _train_if_missing(POLICY_LSTM,     ["--lstm"],
+                      LSTM_TIMESTEPS, "Train policy_brady_deg_lstm")
+    _train_if_missing(POLICY_DEG_LSTM, ["--no-bradykinesia", "--lstm"],
+                      LSTM_TIMESTEPS, "Train policy_deg_lstm")
+    _train_if_missing(POLICY_EXTRAOBS, ["--lstm", "--extraobs"],
+                      LSTM_TIMESTEPS, "Train policy_brady_deg_lstm_extraobs")
 
 
 # ── Stage 2: Combined reward chart ───────────────────────────────────────────
@@ -211,7 +219,10 @@ def stage_compare():
 def main():
     print("=" * 60)
     print("reGainX — Full Pipeline")
-    print("  Stage 1: Train LSTM policies (2M steps each, skip if present)")
+    print(f"  Stage 1: Train any missing policies")
+    print(f"           MLP  (policy_brady_deg, policy_deg)          → {MLP_TIMESTEPS:,} steps")
+    print(f"           LSTM (policy_*_lstm, policy_*_lstm_extraobs) → {LSTM_TIMESTEPS:,} steps")
+    print(f"           (already-present policies are skipped)")
     print("  Stage 2: Combined reward curves chart")
     print("  Stage 3: Per-policy evaluation (32 trials each)")
     print("  Stage 4: Ablation comparisons (LSTM / Brady / ExtraObs)")
