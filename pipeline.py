@@ -8,8 +8,9 @@ runs all ablation comparisons via compare.py.
 Timestep budget:
     MLP  policies (policy_brady_deg, policy_deg)            → 1,000,000 steps
     LSTM policies (policy_brady_deg_lstm, policy_deg_lstm,
-                   policy_brady_deg_lstm_extraobs,
-                   policy_brady_deg_recurrent)               → 2,000,000 steps
+                   policy_brady_deg_lstm_extraobs)           → 2,000,000 steps
+    RecurrentPPO  policy_brady_deg_recurrent                → 2,000,000 steps
+    RecurrentPPO  policy_deg_recurrent                      → 1,000,000 steps
 
 Usage:
     python pipeline.py
@@ -24,6 +25,7 @@ Trains any of the following that are missing:
     policies/policy_deg_lstm.zip
     policies/policy_brady_deg_lstm_extraobs.zip
     policies/policy_brady_deg_recurrent.zip
+    policies/policy_deg_recurrent.zip
 
 Outputs:
     results/pipeline/reward_curves_all_models.png
@@ -33,6 +35,7 @@ Outputs:
     results/extraobs_ablation/
     results/recurrentppo_ablation/
     results/recurrentppo_vs_lstm_ablation/
+    results/deg_recurrent_ablation/
 """
 
 import os
@@ -46,24 +49,27 @@ import matplotlib.pyplot as plt
 
 PYTHON = sys.executable
 
-HEALTHY_PATH       = "policies/healthy_policy.zip"
-POLICY_BRADY       = "policies/policy_brady_deg.zip"
-POLICY_DEG         = "policies/policy_deg.zip"
-POLICY_LSTM        = "policies/policy_brady_deg_lstm.zip"
-POLICY_DEG_LSTM    = "policies/policy_deg_lstm.zip"
-POLICY_EXTRAOBS    = "policies/policy_brady_deg_lstm_extraobs.zip"
-POLICY_RECURRENT   = "policies/policy_brady_deg_recurrent.zip"
+HEALTHY_PATH          = "policies/healthy_policy.zip"
+POLICY_BRADY          = "policies/policy_brady_deg.zip"
+POLICY_DEG            = "policies/policy_deg.zip"
+POLICY_LSTM           = "policies/policy_brady_deg_lstm.zip"
+POLICY_DEG_LSTM       = "policies/policy_deg_lstm.zip"
+POLICY_EXTRAOBS       = "policies/policy_brady_deg_lstm_extraobs.zip"
+POLICY_RECURRENT      = "policies/policy_brady_deg_recurrent.zip"
+POLICY_DEG_RECURRENT  = "policies/policy_deg_recurrent.zip"
 
-LOG_BRADY      = "logs/policy_brady_deg_rewards.csv"
-LOG_DEG        = "logs/policy_deg_rewards.csv"
-LOG_LSTM       = "logs/policy_brady_deg_lstm_rewards.csv"
-LOG_DEG_LSTM   = "logs/policy_deg_lstm_rewards.csv"
-LOG_EXTRAOBS   = "logs/policy_brady_deg_lstm_extraobs_rewards.csv"
-LOG_RECURRENT  = "logs/policy_brady_deg_recurrent_rewards.csv"
+LOG_BRADY             = "logs/policy_brady_deg_rewards.csv"
+LOG_DEG               = "logs/policy_deg_rewards.csv"
+LOG_LSTM              = "logs/policy_brady_deg_lstm_rewards.csv"
+LOG_DEG_LSTM          = "logs/policy_deg_lstm_rewards.csv"
+LOG_EXTRAOBS          = "logs/policy_brady_deg_lstm_extraobs_rewards.csv"
+LOG_RECURRENT         = "logs/policy_brady_deg_recurrent_rewards.csv"
+LOG_DEG_RECURRENT     = "logs/policy_deg_recurrent_rewards.csv"
 
-MLP_TIMESTEPS  = 1_000_000
-LSTM_TIMESTEPS = 2_000_000
-EVAL_TRIALS    = 32
+MLP_TIMESTEPS         = 1_000_000
+LSTM_TIMESTEPS        = 2_000_000
+DEG_RECURRENT_TIMESTEPS = 1_000_000
+EVAL_TRIALS           = 32
 
 # Overridden by --test flag
 _TEST_MODE = False
@@ -131,6 +137,12 @@ def stage_train():
                       LSTM_TIMESTEPS, "Train policy_brady_deg_recurrent (RecurrentPPO)",
                       script="train_recurrent.py")
 
+    # RecurrentPPO deg-only / no bradykinesia (1M steps)
+    _train_if_missing(POLICY_DEG_RECURRENT, ["--no-bradykinesia"],
+                      DEG_RECURRENT_TIMESTEPS,
+                      "Train policy_deg_recurrent (RecurrentPPO, no brady)",
+                      script="train_recurrent.py")
+
 
 # ── Stage 2: Combined reward chart ───────────────────────────────────────────
 
@@ -140,12 +152,13 @@ def stage_chart():
     print("=" * 60)
 
     series = [
-        (LOG_BRADY,     "policy_brady_deg (MLP)",         "C0", "-"),
-        (LOG_DEG,       "policy_deg (MLP)",               "C1", "-"),
-        (LOG_LSTM,      "policy_brady_deg_lstm (CNNLSTM)","C2", "--"),
-        (LOG_DEG_LSTM,  "policy_deg_lstm (CNNLSTM)",      "C3", "--"),
-        (LOG_EXTRAOBS,  "policy_brady_deg_lstm_extraobs",  "C4", ":"),
-        (LOG_RECURRENT, "policy_brady_deg_recurrent (PPO-LSTM)", "C5", "-."),
+        (LOG_BRADY,         "policy_brady_deg (MLP)",              "C0", "-"),
+        (LOG_DEG,           "policy_deg (MLP)",                    "C1", "-"),
+        (LOG_LSTM,          "policy_brady_deg_lstm (CNNLSTM)",     "C2", "--"),
+        (LOG_DEG_LSTM,      "policy_deg_lstm (CNNLSTM)",           "C3", "--"),
+        (LOG_EXTRAOBS,      "policy_brady_deg_lstm_extraobs",       "C4", ":"),
+        (LOG_RECURRENT,     "policy_brady_deg_recurrent (PPO-LSTM)","C5", "-."),
+        (LOG_DEG_RECURRENT, "policy_deg_recurrent (PPO-LSTM)",      "C6", "-."),
     ]
 
     fig, ax = plt.subplots(figsize=(14, 6))
@@ -155,7 +168,9 @@ def stage_chart():
         if len(ts) == 0:
             print(f"  [chart] No data for {label} — skipping.")
             continue
-        ax.plot(ts, rwd, label=label, color=color, linestyle=linestyle, linewidth=1.5)
+        marker = "o" if len(ts) == 1 else None
+        ax.plot(ts, rwd, label=label, color=color, linestyle=linestyle,
+                linewidth=1.5, marker=marker, markersize=6)
         plotted = True
 
     if plotted:
@@ -182,12 +197,13 @@ def stage_evaluate():
 
     # (policy_path, is_extraobs, is_recurrent)
     evals = [
-        (POLICY_BRADY,     False, False),
-        (POLICY_DEG,       False, False),
-        (POLICY_LSTM,      False, False),
-        (POLICY_DEG_LSTM,  False, False),
-        (POLICY_EXTRAOBS,  True,  False),
-        (POLICY_RECURRENT, False, True),
+        (POLICY_BRADY,         False, False),
+        (POLICY_DEG,           False, False),
+        (POLICY_LSTM,          False, False),
+        (POLICY_DEG_LSTM,      False, False),
+        (POLICY_EXTRAOBS,      True,  False),
+        (POLICY_RECURRENT,     False, True),
+        (POLICY_DEG_RECURRENT, False, True),
     ]
 
     for policy_path, extraobs, recurrent in evals:
@@ -234,13 +250,50 @@ def stage_compare():
         PYTHON, "compare.py",
         "--healthy",      HEALTHY_PATH,
         "--brady",        POLICY_BRADY,
+        "--deg",          POLICY_DEG,
         "--lstm",         POLICY_LSTM,
         "--deg-lstm",     POLICY_DEG_LSTM,
         "--extraobs-pol", POLICY_EXTRAOBS,
     ]
     if os.path.exists(POLICY_RECURRENT):
         cmd += ["--recurrent-pol", POLICY_RECURRENT]
+    if os.path.exists(POLICY_DEG_RECURRENT):
+        cmd += ["--deg-recurrent-pol", POLICY_DEG_RECURRENT]
     run(cmd, "All ablation comparisons", env=env)
+
+
+# ── Stage 5: Cross-policy accuracy comparison ─────────────────────────────
+
+def stage_algo_compare():
+    print("\n" + "=" * 60)
+    print("[pipeline] STAGE 5 — Cross-policy accuracy comparison")
+    print("=" * 60)
+
+    if not os.path.exists(HEALTHY_PATH):
+        print(f"  [algo_compare] Skipping — {HEALTHY_PATH} not found.")
+        return
+
+    cmd = [
+        PYTHON, "algo_compare.py",
+        "--healthy", HEALTHY_PATH,
+    ]
+    policy_flags = [
+        ("--brady",         POLICY_BRADY),
+        ("--deg",           POLICY_DEG),
+        ("--lstm",          POLICY_LSTM),
+        ("--deg-lstm",      POLICY_DEG_LSTM),
+        ("--extraobs",      POLICY_EXTRAOBS),
+        ("--recurrent",     POLICY_RECURRENT),
+        ("--deg-recurrent", POLICY_DEG_RECURRENT),
+    ]
+    for flag, path in policy_flags:
+        if os.path.exists(path):
+            cmd += [flag, path]
+
+    if _TEST_MODE:
+        cmd += ["--episodes", "2"]
+
+    run(cmd, "Cross-policy accuracy comparison")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -259,9 +312,10 @@ def main():
     print("=" * 60)
     print("reGainX — Full Pipeline")
     print(f"  Stage 1: Train any missing policies")
-    print(f"           MLP        (policy_brady_deg, policy_deg)              → {MLP_TIMESTEPS:,} steps")
-    print(f"           CNN-LSTM   (policy_*_lstm, policy_*_lstm_extraobs)     → {LSTM_TIMESTEPS:,} steps")
+    print(f"           MLP          (policy_brady_deg, policy_deg)            → {MLP_TIMESTEPS:,} steps")
+    print(f"           CNN-LSTM     (policy_*_lstm, policy_*_lstm_extraobs)   → {LSTM_TIMESTEPS:,} steps")
     print(f"           RecurrentPPO (policy_brady_deg_recurrent)              → {LSTM_TIMESTEPS:,} steps")
+    print(f"           RecurrentPPO (policy_deg_recurrent)                   → {DEG_RECURRENT_TIMESTEPS:,} steps")
     print(f"           (already-present policies are skipped)")
     print("  Stage 2: Combined reward curves chart")
     print("  Stage 3: Per-policy evaluation (32 trials each)")
@@ -278,6 +332,7 @@ def main():
     stage_chart()
     stage_evaluate()
     stage_compare()
+    stage_algo_compare()
 
     print("\n" + "=" * 60)
     print("[pipeline] Complete.")
@@ -288,6 +343,9 @@ def main():
     print("  results/extraobs_ablation/")
     print("  results/recurrentppo_ablation/         (RecurrentPPO vs PPO MLP)")
     print("  results/recurrentppo_vs_lstm_ablation/ (RecurrentPPO vs CNN-LSTM)")
+    print("  results/deg_recurrent_ablation/        (policy_deg_recurrent vs policy_deg)")
+    print("  results/algo_compare/accuracy_bar.png")
+    print("  results/algo_compare/accuracy_per_episode.png")
     print("=" * 60)
 
 
