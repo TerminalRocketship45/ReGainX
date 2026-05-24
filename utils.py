@@ -74,15 +74,23 @@ def plot_confusion_matrix(
     severity_labels: list,
     title: str,
     save_path: str,
+    pct: bool = False,
 ) -> None:
     """
-    Blues confusion matrix: rows=angle bins, cols=severity quartiles,
-    cells=Pearson correlation (NaN shown as N/A).
-    Light blue = low correlation, dark blue = high.
+    Blues confusion matrix: rows=angle bins, cols=severity quartiles.
+    pct=True: multiply values by 100, label cells as %, vmax=100.
     """
     fig, ax = plt.subplots(figsize=(8, 6))
     display = np.nan_to_num(matrix, nan=0.0)
-    im = ax.imshow(display, cmap="Blues", vmin=0.0, vmax=1.0, aspect="auto")
+    if pct:
+        display = display * 100.0
+        vmax = 100.0
+        cbar_label = "% trajectory match vs healthy"
+    else:
+        vmax = 1.0
+        cbar_label = "Pearson r (higher = closer to healthy)"
+
+    im = ax.imshow(display, cmap="Blues", vmin=0.0, vmax=vmax, aspect="auto")
 
     ax.set_xticks(range(len(severity_labels)))
     ax.set_xticklabels(severity_labels)
@@ -95,11 +103,17 @@ def plot_confusion_matrix(
     for i in range(len(angle_labels)):
         for j in range(len(severity_labels)):
             val = matrix[i, j]
-            text = "N/A" if np.isnan(val) else f"{val:.2f}"
-            color = "white" if display[i, j] > 0.6 else "black"
+            if np.isnan(val):
+                text = "N/A"
+            elif pct:
+                text = f"{val * 100:.0f}%"
+            else:
+                text = f"{val:.2f}"
+            threshold = 60.0 if pct else 0.6
+            color = "white" if display[i, j] > threshold else "black"
             ax.text(j, i, text, ha="center", va="center", color=color, fontsize=9)
 
-    plt.colorbar(im, ax=ax, label="Pearson r (higher = closer to healthy)")
+    plt.colorbar(im, ax=ax, label=cbar_label)
     plt.tight_layout()
     save_dir = os.path.dirname(save_path)
     if save_dir:
