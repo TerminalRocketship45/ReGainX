@@ -190,8 +190,8 @@ def run_trial(
             break
 
     # --- Track: no-exo (zero action, same patient state) ---
-    exo_env.reset()
-    base_env.base_env.unwrapped.target_jnt_value = np.array([target_angle])
+    exo_env.reset()  # obs from reset() discarded — rebuilt from seeded patient state below
+    base_env.base_env.unwrapped.target_jnt_value = [target_angle]
     base_env.base_env.unwrapped.target_type = "fixed"
     base_env.base_env.unwrapped.update_target(restore_sim=True)
     base_env.base_env.unwrapped.muscle_fatigue.MA[:] = remaining * split
@@ -214,6 +214,7 @@ def run_trial(
         no_exo_obs = obs_flat
     zero_action = np.zeros(exo_env.action_space.shape, dtype=np.float32)
     no_exo_angles = []
+    # zero_action every step; no_exo_obs is updated by the wrapper but not used to steer (no policy)
     for _ in range(MAX_STEPS):
         no_exo_obs, _, done, truncated, _ = exo_env.step(zero_action)
         no_exo_angles.append(float(base_env.base_env.unwrapped.sim.data.qpos[0]))
@@ -223,7 +224,8 @@ def run_trial(
     min_len_no = min(len(healthy_angles), len(no_exo_angles))
     no_exo_corr = 0.0
     if min_len_no > 1:
-        no_exo_corr, _ = pearsonr(healthy_angles[:min_len_no], no_exo_angles[:min_len_no])
+        raw_r, _ = pearsonr(healthy_angles[:min_len_no], no_exo_angles[:min_len_no])
+        no_exo_corr = float(raw_r) if not np.isnan(raw_r) else 0.0
 
     avg_mf = float(np.mean(base_env.base_env.unwrapped.muscle_fatigue.MF))
     severity = compute_severity(force_scale, activation_slowdown, avg_mf)
@@ -231,7 +233,8 @@ def run_trial(
     min_len = min(len(healthy_angles), len(exo_angles))
     corr = 0.0
     if min_len > 1:
-        corr, _ = pearsonr(healthy_angles[:min_len], exo_angles[:min_len])
+        raw_r, _ = pearsonr(healthy_angles[:min_len], exo_angles[:min_len])
+        corr = float(raw_r) if not np.isnan(raw_r) else 0.0
 
     angle_bin = get_angle_bin(target_angle, angle_edges)
 
