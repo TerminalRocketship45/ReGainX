@@ -105,18 +105,21 @@ def run_eval_trial(
     base_env = exo_env.env if isinstance(exo_env, TemporalStackWrapper) else exo_env
     n_muscles = base_env.n_muscles
 
-    def configure_exo_env() -> float:
+    def configure_exo_env(MF_in=None, split_in=None):
         base_env.base_env.unwrapped.target_jnt_value = [target_angle]
         base_env.base_env.unwrapped.target_type = "fixed"
         base_env.base_env.unwrapped.update_target(restore_sim=True)
 
-        MF = np.random.uniform(
-            max(avg_mf_target * 0.9, 0.0),
-            min(avg_mf_target * 1.1, 1.0),
-            size=n_muscles,
-        )
+        if MF_in is None:
+            MF = np.random.uniform(
+                max(avg_mf_target * 0.9, 0.0),
+                min(avg_mf_target * 1.1, 1.0),
+                size=n_muscles,
+            )
+        else:
+            MF = MF_in
         remaining = 1.0 - MF
-        split = np.random.uniform(0.0, 1.0, size=n_muscles)
+        split = split_in if split_in is not None else np.random.uniform(0.0, 1.0, size=n_muscles)
         base_env.base_env.unwrapped.muscle_fatigue.MA[:] = remaining * split
         base_env.base_env.unwrapped.muscle_fatigue.MR[:] = remaining * (1.0 - split)
         base_env.base_env.unwrapped.muscle_fatigue.MF[:] = MF
@@ -128,7 +131,7 @@ def run_eval_trial(
         base_env.base_env.unwrapped.sim.data.qvel[:] = 0.0
         base_env.base_env.unwrapped.sim.forward()
 
-        return float(np.mean(base_env.base_env.unwrapped.muscle_fatigue.MF))
+        return float(np.mean(MF)), MF, split
 
     def get_exo_obs():
         raw = base_env._current_raw_obs()
@@ -161,7 +164,7 @@ def run_eval_trial(
 
     # Track 2: Impaired, no exo (exo torque = 0)
     exo_env.reset()
-    configure_exo_env()
+    _, saved_MF, saved_split = configure_exo_env()  # save MF/split for Track 3
     no_exo_obs = get_exo_obs()
     no_exo_angles = []
     zero_action = np.zeros(exo_env.action_space.shape, dtype=np.float32)
@@ -171,9 +174,9 @@ def run_eval_trial(
         if done or truncated:
             break
 
-    # Track 3: Impaired + exo
+    # Track 3: Impaired + exo (same patient state as Track 2)
     exo_env.reset()
-    actual_avg_mf = configure_exo_env()
+    actual_avg_mf, _, _ = configure_exo_env(MF_in=saved_MF, split_in=saved_split)
     exo_obs = get_exo_obs()
 
     exo_angles, latencies = [], []
@@ -437,18 +440,16 @@ def main():
 
         mat_sums[angle_bin, sev_quartile] += trial["correlation"]
         mat_counts[angle_bin, sev_quartile] += 1
-        if mat_counts[angle_bin, sev_quartile] >= 1:
-            matrix[angle_bin, sev_quartile] = (
-                mat_sums[angle_bin, sev_quartile] / mat_counts[angle_bin, sev_quartile]
-            )
+        matrix[angle_bin, sev_quartile] = (
+            mat_sums[angle_bin, sev_quartile] / mat_counts[angle_bin, sev_quartile]
+        )
 
         mat_no_exo_sums[angle_bin, sev_quartile]   += trial["no_exo_correlation"]
         mat_no_exo_counts[angle_bin, sev_quartile] += 1
-        if mat_no_exo_counts[angle_bin, sev_quartile] >= 1:
-            matrix_no_exo[angle_bin, sev_quartile] = (
-                mat_no_exo_sums[angle_bin, sev_quartile]
-                / mat_no_exo_counts[angle_bin, sev_quartile]
-            )
+        matrix_no_exo[angle_bin, sev_quartile] = (
+            mat_no_exo_sums[angle_bin, sev_quartile]
+            / mat_no_exo_counts[angle_bin, sev_quartile]
+        )
 
         print(f"reward={trial['reward']:7.2f}  corr={trial['correlation']:.3f}  "
               f"goal={'Y' if trial['goal_achieved'] else 'N'}")

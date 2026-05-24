@@ -452,7 +452,7 @@ def run_comparison(
     matrix_b = build_matrix(trials_b, severity_edges)
     no_exo_trials = [
         {"correlation": t["no_exo_correlation"], "angle_bin": t["angle_bin"], "severity": t["severity"]}
-        for t in trials_a
+        for t in trials_a + trials_b
     ]
     matrix_no_exo = build_matrix(no_exo_trials, severity_edges)
     plot_confusion_matrix(matrix_a, ANGLE_LABELS, SEVERITY_LABELS,

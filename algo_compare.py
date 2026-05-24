@@ -24,7 +24,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 from scipy.stats import pearsonr
 import myosuite  # noqa: F401 — registers envs
 from myosuite.utils import gym
@@ -203,9 +202,10 @@ def _plot_bar(policy_labels, acc_exo, acc_no_exo, boost_pct, out_path):
 
     ax.bar(x - w / 2, acc_no_exo, w, label="Impaired, no exo", color="gray", alpha=0.75)
     for i in range(n):
-        bar = ax.bar(x[i] + w / 2, acc_exo[i], w, color=f"C{i}")
+        clean_lbl = policy_labels[i].replace("\n", " ")
+        bar = ax.bar(x[i] + w / 2, acc_exo[i], w, color=f"C{i}", label=clean_lbl)
         ax.text(bar[0].get_x() + bar[0].get_width() / 2,
-                acc_exo[i] + 0.015,
+                min(acc_exo[i] + 0.015, 1.12),
                 f"{boost_pct[i]:+.0f}%",
                 ha="center", va="bottom", fontsize=8, fontweight="bold")
 
@@ -216,9 +216,7 @@ def _plot_bar(policy_labels, acc_exo, acc_no_exo, boost_pct, out_path):
     ax.set_ylim(0, 1.18)
     ax.set_title("Algorithm Accuracy Comparison — Pearson r vs Healthy Baseline")
 
-    handles, lbls = ax.get_legend_handles_labels()
-    handles.append(Patch(color="steelblue", label="Impaired + exo (each policy)"))
-    ax.legend(handles=handles, loc="lower right", fontsize=8)
+    ax.legend(loc="lower right", fontsize=8)
 
     plt.tight_layout()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
