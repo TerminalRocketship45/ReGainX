@@ -25,6 +25,12 @@ import myosuite
 from myosuite.utils import gym
 from stable_baselines3 import PPO
 
+try:
+    from sb3_contrib import RecurrentPPO
+    _HAS_RECURRENT_PPO = True
+except ImportError:
+    _HAS_RECURRENT_PPO = False
+
 from envs.elbow_env import CombinedExoOnlyWrapper
 from envs.temporal_buffer import TemporalStackWrapper
 from utils import (
@@ -41,6 +47,16 @@ SEVERITY_BINS = 4
 
 ANGLE_LABELS = ["0.5-1.0", "1.0-1.5", "1.5-2.0", "2.0-2.5"]
 SEVERITY_LABELS = ["Q1 mild", "Q2", "Q3", "Q4 severe"]
+
+
+# -- Policy loader --
+
+def load_policy(path: str, is_recurrent: bool = False):
+    if is_recurrent:
+        if not _HAS_RECURRENT_PPO:
+            raise ImportError("sb3_contrib not installed — run: pip install sb3-contrib")
+        return RecurrentPPO.load(path)
+    return PPO.load(path)
 
 
 # -- Environment builders --
@@ -68,11 +84,12 @@ def make_exo_env(healthy_path: str, lstm: bool = False, extra_obs: bool = False)
 
 def run_trial(
     exo_env,
-    exo_policy: PPO,
+    exo_policy,
     healthy_env,
     healthy_policy: PPO,
     seed: int,
     angle_edges: np.ndarray,
+    is_recurrent_exo: bool = False,
 ) -> dict:
     """
     Run one evaluation trial with shared seed for fair patient comparison.
@@ -144,9 +161,20 @@ def run_trial(
     goal_achieved = False
     goal_time = None
 
+    lstm_states = None
+    episode_start = np.ones((1,), dtype=bool)
+
     for step in range(MAX_STEPS):
         t0 = time.perf_counter()
-        action, _ = exo_policy.predict(exo_obs, deterministic=True)
+        if is_recurrent_exo:
+            action, lstm_states = exo_policy.predict(
+                exo_obs, state=lstm_states,
+                episode_start=episode_start,
+                deterministic=True,
+            )
+            episode_start = np.zeros((1,), dtype=bool)
+        else:
+            action, _ = exo_policy.predict(exo_obs, deterministic=True)
         latencies.append((time.perf_counter() - t0) * 1000)
 
         exo_obs, reward, done, truncated, _ = exo_env.step(action)
@@ -278,20 +306,32 @@ def rng_noise(obs: np.ndarray, sigma: float) -> np.ndarray:
     return np.random.normal(0, sigma, size=obs.shape).astype(obs.dtype)
 
 
-def plot_noise_robustness(env_a, policy_a: PPO, env_b, policy_b: PPO,
-                          labels: tuple, save_path: str) -> None:
+def plot_noise_robustness(env_a, policy_a, env_b, policy_b,
+                          labels: tuple, save_path: str,
+                          is_recurrent_a: bool = False,
+                          is_recurrent_b: bool = False) -> None:
     results = {labels[0]: [], labels[1]: []}
 
     for sigma in NOISE_LEVELS:
-        for policy, env, lbl in [(policy_a, env_a, labels[0]),
-                                  (policy_b, env_b, labels[1])]:
+        for policy, env, lbl, is_rec in [
+            (policy_a, env_a, labels[0], is_recurrent_a),
+            (policy_b, env_b, labels[1], is_recurrent_b),
+        ]:
             ep_rewards = []
             for _ in range(NOISE_EPISODES_PER_LEVEL):
                 obs, _ = env.reset()
                 total = 0.0
+                lstm_states = None
+                episode_start = np.ones((1,), dtype=bool)
                 for _ in range(MAX_STEPS):
                     noisy_obs = obs + rng_noise(obs, sigma)
-                    action, _ = policy.predict(noisy_obs, deterministic=True)
+                    if is_rec:
+                        action, lstm_states = policy.predict(
+                            noisy_obs, state=lstm_states,
+                            episode_start=episode_start, deterministic=True)
+                        episode_start = np.zeros((1,), dtype=bool)
+                    else:
+                        action, _ = policy.predict(noisy_obs, deterministic=True)
                     obs, reward, done, truncated, _ = env.step(action)
                     total += reward
                     if done or truncated:
@@ -325,6 +365,8 @@ def run_comparison(
     angle_edges: np.ndarray,
     extra_obs_a: bool = False,
     extra_obs_b: bool = False,
+    is_recurrent_a: bool = False,
+    is_recurrent_b: bool = False,
 ):
     os.makedirs(out_dir, exist_ok=True)
     label_a = os.path.basename(policy_path_a).replace(".zip", "")
@@ -336,8 +378,8 @@ def run_comparison(
     print(f"  {N_TRIALS} trials — brady+deg patients — shared seeds per trial")
     print(f"{'='*60}")
 
-    policy_a = PPO.load(policy_path_a)
-    policy_b = PPO.load(policy_path_b)
+    policy_a = load_policy(policy_path_a, is_recurrent=is_recurrent_a)
+    policy_b = load_policy(policy_path_b, is_recurrent=is_recurrent_b)
     healthy_policy = PPO.load(healthy_path)
 
     env_a = make_exo_env(healthy_path, lstm=lstm_a, extra_obs=extra_obs_a)
@@ -350,8 +392,10 @@ def run_comparison(
 
     for i, seed in enumerate(seeds):
         print(f"  Trial {i+1:2d}/{N_TRIALS} ...", end=" ", flush=True)
-        t_a = run_trial(env_a, policy_a, h_env_a, healthy_policy, seed, angle_edges)
-        t_b = run_trial(env_b, policy_b, h_env_b, healthy_policy, seed, angle_edges)
+        t_a = run_trial(env_a, policy_a, h_env_a, healthy_policy, seed, angle_edges,
+                        is_recurrent_exo=is_recurrent_a)
+        t_b = run_trial(env_b, policy_b, h_env_b, healthy_policy, seed, angle_edges,
+                        is_recurrent_exo=is_recurrent_b)
         trials_a.append(t_a)
         trials_b.append(t_b)
         print(f"reward_a={t_a['reward']:.1f}  reward_b={t_b['reward']:.1f}")
@@ -386,11 +430,12 @@ def _prompt(prompt_text: str, default: str) -> str:
 def main():
     import argparse as _ap
     parser = _ap.ArgumentParser(description="reGainX ablation comparisons")
-    parser.add_argument("--healthy",      default="", help="Path to healthy policy")
-    parser.add_argument("--brady",        default="", help="Path to policy_brady_deg (MLP)")
-    parser.add_argument("--lstm",         default="", help="Path to policy_brady_deg_lstm")
-    parser.add_argument("--deg-lstm",     default="", help="Path to policy_deg_lstm")
-    parser.add_argument("--extraobs-pol", default="", help="Path to policy_brady_deg_lstm_extraobs")
+    parser.add_argument("--healthy",       default="", help="Path to healthy policy")
+    parser.add_argument("--brady",         default="", help="Path to policy_brady_deg (MLP)")
+    parser.add_argument("--lstm",          default="", help="Path to policy_brady_deg_lstm (CNN-LSTM)")
+    parser.add_argument("--deg-lstm",      default="", help="Path to policy_deg_lstm (CNN-LSTM)")
+    parser.add_argument("--extraobs-pol",  default="", help="Path to policy_brady_deg_lstm_extraobs")
+    parser.add_argument("--recurrent-pol", default="", help="Path to policy_brady_deg_recurrent (RecurrentPPO)")
     cli = parser.parse_args()
 
     print("=" * 60)
@@ -398,11 +443,12 @@ def main():
     print("=" * 60)
     print("Three ablation studies — all evaluated on brady+deg patients.\n")
 
-    healthy_path  = cli.healthy      or _prompt("Healthy policy path",                     "policies/healthy_policy.zip")
-    path_brady    = cli.brady        or _prompt("brady+deg MLP policy path",               "policies/policy_brady_deg.zip")
-    path_lstm     = cli.lstm         or _prompt("brady+deg LSTM policy path",              "policies/policy_brady_deg_lstm.zip")
-    path_deg_lstm = cli.deg_lstm     or _prompt("deg-only LSTM policy path",               "policies/policy_deg_lstm.zip")
-    path_extraobs = cli.extraobs_pol or _prompt("brady+deg LSTM+extraobs policy path",     "policies/policy_brady_deg_lstm_extraobs.zip")
+    healthy_path   = cli.healthy       or _prompt("Healthy policy path",                     "policies/healthy_policy.zip")
+    path_brady     = cli.brady         or _prompt("brady+deg MLP policy path",               "policies/policy_brady_deg.zip")
+    path_lstm      = cli.lstm          or _prompt("brady+deg CNN-LSTM policy path",           "policies/policy_brady_deg_lstm.zip")
+    path_deg_lstm  = cli.deg_lstm      or _prompt("deg-only CNN-LSTM policy path",            "policies/policy_deg_lstm.zip")
+    path_extraobs  = cli.extraobs_pol  or _prompt("brady+deg CNN-LSTM+extraobs policy path",  "policies/policy_brady_deg_lstm_extraobs.zip")
+    path_recurrent = cli.recurrent_pol
 
     # Verify required files exist
     missing = [p for p in [healthy_path, path_brady, path_lstm, path_extraobs]
@@ -466,11 +512,40 @@ def main():
         extra_obs_a=False, extra_obs_b=True,
     )
 
+    # ── RecurrentPPO Ablation: RecurrentPPO vs PPO MLP ───────────────────
+    if path_recurrent and os.path.exists(path_recurrent):
+        run_comparison(
+            "RecurrentPPO vs PPO MLP",
+            path_recurrent, path_brady,
+            healthy_path,
+            lstm_a=False, lstm_b=False,
+            is_recurrent_a=True, is_recurrent_b=False,
+            out_dir="results/recurrentppo_ablation",
+            angle_edges=angle_edges,
+        )
+
+        # ── RecurrentPPO vs CNN-LSTM ──────────────────────────────────────
+        if os.path.exists(path_lstm):
+            run_comparison(
+                "RecurrentPPO vs CNN-LSTM",
+                path_recurrent, path_lstm,
+                healthy_path,
+                lstm_a=False, lstm_b=True,
+                is_recurrent_a=True, is_recurrent_b=False,
+                out_dir="results/recurrentppo_vs_lstm_ablation",
+                angle_edges=angle_edges,
+            )
+    else:
+        print("\n[compare] Skipping RecurrentPPO ablations — policy not provided or missing.")
+        print("  Train with: python train_recurrent.py")
+
     print("\n" + "=" * 60)
     print("All ablation comparisons complete.")
     print("  results/lstm_ablation/")
     print("  results/bradykinesia_ablation/  (if policy_deg_lstm.zip available)")
     print("  results/extraobs_ablation/")
+    print("  results/recurrentppo_ablation/         (if policy_brady_deg_recurrent.zip available)")
+    print("  results/recurrentppo_vs_lstm_ablation/ (if policy_brady_deg_recurrent.zip available)")
     print("=" * 60)
 
 

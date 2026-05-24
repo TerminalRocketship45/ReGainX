@@ -30,6 +30,12 @@ import myosuite
 from myosuite.utils import gym
 from stable_baselines3 import PPO
 
+try:
+    from sb3_contrib import RecurrentPPO
+    _HAS_RECURRENT_PPO = True
+except ImportError:
+    _HAS_RECURRENT_PPO = False
+
 from envs.elbow_env import CombinedExoOnlyWrapper
 from envs.temporal_buffer import TemporalStackWrapper
 from utils import (
@@ -86,13 +92,14 @@ def angle_bin_to_target(angle_bin: int, angle_edges: np.ndarray) -> float:
 
 def run_eval_trial(
     exo_env,
-    exo_policy: PPO,
+    exo_policy,
     healthy_env,
     healthy_policy: PPO,
     target_angle: float,
     force_scale: float,
     activation_slowdown: float,
     avg_mf_target: float,
+    is_recurrent_exo: bool = False,
 ) -> dict:
     """Run healthy, impaired-no-exo, and impaired+exo tracks for one trial."""
     base_env = exo_env.env if isinstance(exo_env, TemporalStackWrapper) else exo_env
@@ -174,9 +181,20 @@ def run_eval_trial(
     goal_achieved = False
     goal_time = None
 
+    lstm_states = None
+    episode_start = np.ones((1,), dtype=bool)
+
     for step in range(MAX_STEPS):
         t0 = time.perf_counter()
-        action, _ = exo_policy.predict(exo_obs, deterministic=True)
+        if is_recurrent_exo:
+            action, lstm_states = exo_policy.predict(
+                exo_obs, state=lstm_states,
+                episode_start=episode_start,
+                deterministic=True,
+            )
+            episode_start = np.zeros((1,), dtype=bool)
+        else:
+            action, _ = exo_policy.predict(exo_obs, deterministic=True)
         latencies.append((time.perf_counter() - t0) * 1000)
 
         exo_obs, reward, done, truncated, _ = exo_env.step(action)
@@ -309,6 +327,8 @@ def main():
                         help="Output directory (default: results/evaluation or auto-named from policy)")
     parser.add_argument("--extraobs", action="store_true",
                         help="Pass extra_obs=True to env (also auto-detected from policy filename)")
+    parser.add_argument("--recurrent", action="store_true",
+                        help="Load as RecurrentPPO (PPO-LSTM from sb3_contrib)")
     parser.add_argument("--healthy-path", default="",
                         help="Path to healthy policy (skips interactive prompt)")
     parser.add_argument("--exo-path", default="",
@@ -332,8 +352,9 @@ def main():
             exo_path = "policies/policy_brady_deg.zip"
 
     policy_basename = os.path.basename(exo_path).replace(".zip", "")
-    is_lstm     = "lstm"     in policy_basename
-    extra_obs   = args.extraobs or ("extraobs" in policy_basename)
+    is_lstm         = ("lstm" in policy_basename) and ("recurrent" not in policy_basename)
+    extra_obs       = args.extraobs or ("extraobs" in policy_basename)
+    is_recurrent    = args.recurrent or ("recurrent" in policy_basename)
 
     if args.out_dir:
         out_dir = args.out_dir
@@ -342,13 +363,19 @@ def main():
 
     os.makedirs(out_dir, exist_ok=True)
 
-    print(f"  Policy   : {exo_path}")
-    print(f"  LSTM     : {is_lstm}")
-    print(f"  ExtraObs : {extra_obs}")
-    print(f"  Out dir  : {out_dir}")
+    print(f"  Policy      : {exo_path}")
+    print(f"  CNN-LSTM    : {is_lstm}")
+    print(f"  RecurrentPPO: {is_recurrent}")
+    print(f"  ExtraObs    : {extra_obs}")
+    print(f"  Out dir     : {out_dir}")
 
     healthy_policy = PPO.load(healthy_path)
-    exo_policy = PPO.load(exo_path)
+    if is_recurrent:
+        if not _HAS_RECURRENT_PPO:
+            raise ImportError("sb3_contrib not installed — run: pip install sb3-contrib")
+        exo_policy = RecurrentPPO.load(exo_path)
+    else:
+        exo_policy = PPO.load(exo_path)
 
     healthy_env = gym.make("myoElbowPose1D6MRandom-v0")
     base = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
@@ -362,6 +389,7 @@ def main():
     )
     if is_lstm:
         exo_env = TemporalStackWrapper(exo_env, window=20)
+    # RecurrentPPO handles temporal context internally — no wrapper needed
 
     # Angle edges from actual env range
     tmp = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
@@ -393,6 +421,7 @@ def main():
             exo_env, exo_policy,
             healthy_env, healthy_policy,
             target_angle, force_scale, activation_slowdown, avg_mf_target,
+            is_recurrent_exo=is_recurrent,
         )
         all_trials.append(trial)
 
