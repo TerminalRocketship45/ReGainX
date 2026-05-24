@@ -102,15 +102,15 @@ def plot_confusion_matrix(
 
     for i in range(len(angle_labels)):
         for j in range(len(severity_labels)):
-            val = matrix[i, j]
-            if np.isnan(val):
+            val_raw  = matrix[i, j]
+            disp_val = display[i, j]   # already ×100 if pct, nan→0 always
+            if np.isnan(val_raw):
                 text = "N/A"
             elif pct:
-                text = f"{val * 100:.0f}%"
+                text = f"{disp_val:.0f}%"
             else:
-                text = f"{val:.2f}"
-            threshold = 60.0 if pct else 0.6
-            color = "white" if display[i, j] > threshold else "black"
+                text = f"{disp_val:.2f}"
+            color = "white" if disp_val > (60.0 if pct else 0.6) else "black"
             ax.text(j, i, text, ha="center", va="center", color=color, fontsize=9)
 
     plt.colorbar(im, ax=ax, label=cbar_label)
