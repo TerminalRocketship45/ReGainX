@@ -189,6 +189,42 @@ def run_trial(
         if done or truncated:
             break
 
+    # --- Track: no-exo (zero action, same patient state) ---
+    exo_env.reset()
+    base_env.base_env.unwrapped.target_jnt_value = np.array([target_angle])
+    base_env.base_env.unwrapped.target_type = "fixed"
+    base_env.base_env.unwrapped.update_target(restore_sim=True)
+    base_env.base_env.unwrapped.muscle_fatigue.MA[:] = remaining * split
+    base_env.base_env.unwrapped.muscle_fatigue.MR[:] = remaining * (1.0 - split)
+    base_env.base_env.unwrapped.muscle_fatigue.MF[:] = MF
+    base_env.force_scale = force_scale
+    base_env.activation_slowdown = activation_slowdown
+    base_env._apply_brady()
+    base_env.base_env.unwrapped.sim.data.qpos[:] = 0.0
+    base_env.base_env.unwrapped.sim.data.qvel[:] = 0.0
+    base_env.base_env.unwrapped.sim.forward()
+    raw = base_env._current_raw_obs()
+    obs_flat = base_env._build_obs(raw)
+    if is_lstm:
+        exo_env._buffer.clear()
+        for _ in range(exo_env.window):
+            exo_env._buffer.append(obs_flat.copy())
+        no_exo_obs = exo_env._stack()
+    else:
+        no_exo_obs = obs_flat
+    zero_action = np.zeros(exo_env.action_space.shape, dtype=np.float32)
+    no_exo_angles = []
+    for _ in range(MAX_STEPS):
+        no_exo_obs, _, done, truncated, _ = exo_env.step(zero_action)
+        no_exo_angles.append(float(base_env.base_env.unwrapped.sim.data.qpos[0]))
+        if done or truncated:
+            break
+
+    min_len_no = min(len(healthy_angles), len(no_exo_angles))
+    no_exo_corr = 0.0
+    if min_len_no > 1:
+        no_exo_corr, _ = pearsonr(healthy_angles[:min_len_no], no_exo_angles[:min_len_no])
+
     avg_mf = float(np.mean(base_env.base_env.unwrapped.muscle_fatigue.MF))
     severity = compute_severity(force_scale, activation_slowdown, avg_mf)
 
@@ -207,6 +243,7 @@ def run_trial(
         "healthy_angles": healthy_angles,
         "exo_angles": exo_angles,
         "correlation": corr,
+        "no_exo_correlation": no_exo_corr,
         "target_angle": target_angle,
         "angle_bin": angle_bin,
         "force_scale": force_scale,
@@ -410,12 +447,20 @@ def run_comparison(
 
     matrix_a = build_matrix(trials_a, severity_edges)
     matrix_b = build_matrix(trials_b, severity_edges)
+    no_exo_trials = [
+        {"correlation": t["no_exo_correlation"], "angle_bin": t["angle_bin"], "severity": t["severity"]}
+        for t in trials_a
+    ]
+    matrix_no_exo = build_matrix(no_exo_trials, severity_edges)
     plot_confusion_matrix(matrix_a, ANGLE_LABELS, SEVERITY_LABELS,
-                          f"Movement Accuracy — {label_a}",
-                          f"{out_dir}/confusion_matrix_{label_a}.png")
+                          f"Movement Accuracy (with exo) — {label_a}",
+                          f"{out_dir}/confusion_matrix_{label_a}.png", pct=True)
     plot_confusion_matrix(matrix_b, ANGLE_LABELS, SEVERITY_LABELS,
-                          f"Movement Accuracy — {label_b}",
-                          f"{out_dir}/confusion_matrix_{label_b}.png")
+                          f"Movement Accuracy (with exo) — {label_b}",
+                          f"{out_dir}/confusion_matrix_{label_b}.png", pct=True)
+    plot_confusion_matrix(matrix_no_exo, ANGLE_LABELS, SEVERITY_LABELS,
+                          "Movement Accuracy (no exo) — impaired baseline",
+                          f"{out_dir}/confusion_matrix_no_exo.png", pct=True)
 
     print(f"\n  Results saved to {out_dir}/")
     env_a.close(); env_b.close(); h_env_a.close(); h_env_b.close()
@@ -430,12 +475,14 @@ def _prompt(prompt_text: str, default: str) -> str:
 def main():
     import argparse as _ap
     parser = _ap.ArgumentParser(description="reGainX ablation comparisons")
-    parser.add_argument("--healthy",       default="", help="Path to healthy policy")
-    parser.add_argument("--brady",         default="", help="Path to policy_brady_deg (MLP)")
-    parser.add_argument("--lstm",          default="", help="Path to policy_brady_deg_lstm (CNN-LSTM)")
-    parser.add_argument("--deg-lstm",      default="", help="Path to policy_deg_lstm (CNN-LSTM)")
-    parser.add_argument("--extraobs-pol",  default="", help="Path to policy_brady_deg_lstm_extraobs")
-    parser.add_argument("--recurrent-pol", default="", help="Path to policy_brady_deg_recurrent (RecurrentPPO)")
+    parser.add_argument("--healthy",           default="", help="Path to healthy policy")
+    parser.add_argument("--brady",             default="", help="Path to policy_brady_deg (MLP)")
+    parser.add_argument("--deg",               default="", help="Path to policy_deg (MLP, no brady)")
+    parser.add_argument("--lstm",              default="", help="Path to policy_brady_deg_lstm (CNN-LSTM)")
+    parser.add_argument("--deg-lstm",          default="", help="Path to policy_deg_lstm (CNN-LSTM)")
+    parser.add_argument("--extraobs-pol",      default="", help="Path to policy_brady_deg_lstm_extraobs")
+    parser.add_argument("--recurrent-pol",     default="", help="Path to policy_brady_deg_recurrent (RecurrentPPO)")
+    parser.add_argument("--deg-recurrent-pol", default="", help="Path to policy_deg_recurrent (RecurrentPPO, no brady)")
     cli = parser.parse_args()
 
     print("=" * 60)
@@ -443,12 +490,14 @@ def main():
     print("=" * 60)
     print("Three ablation studies — all evaluated on brady+deg patients.\n")
 
-    healthy_path   = cli.healthy       or _prompt("Healthy policy path",                     "policies/healthy_policy.zip")
-    path_brady     = cli.brady         or _prompt("brady+deg MLP policy path",               "policies/policy_brady_deg.zip")
-    path_lstm      = cli.lstm          or _prompt("brady+deg CNN-LSTM policy path",           "policies/policy_brady_deg_lstm.zip")
-    path_deg_lstm  = cli.deg_lstm      or _prompt("deg-only CNN-LSTM policy path",            "policies/policy_deg_lstm.zip")
-    path_extraobs  = cli.extraobs_pol  or _prompt("brady+deg CNN-LSTM+extraobs policy path",  "policies/policy_brady_deg_lstm_extraobs.zip")
-    path_recurrent = cli.recurrent_pol
+    healthy_path       = cli.healthy           or _prompt("Healthy policy path",                     "policies/healthy_policy.zip")
+    path_brady         = cli.brady             or _prompt("brady+deg MLP policy path",               "policies/policy_brady_deg.zip")
+    path_deg           = cli.deg               or ""
+    path_lstm          = cli.lstm              or _prompt("brady+deg CNN-LSTM policy path",           "policies/policy_brady_deg_lstm.zip")
+    path_deg_lstm      = cli.deg_lstm          or _prompt("deg-only CNN-LSTM policy path",            "policies/policy_deg_lstm.zip")
+    path_extraobs      = cli.extraobs_pol      or _prompt("brady+deg CNN-LSTM+extraobs policy path",  "policies/policy_brady_deg_lstm_extraobs.zip")
+    path_recurrent     = cli.recurrent_pol
+    path_deg_recurrent = cli.deg_recurrent_pol
 
     # Verify required files exist
     missing = [p for p in [healthy_path, path_brady, path_lstm, path_extraobs]
@@ -539,6 +588,25 @@ def main():
         print("\n[compare] Skipping RecurrentPPO ablations — policy not provided or missing.")
         print("  Train with: python train_recurrent.py")
 
+    # ── Deg-only Recurrent vs Deg-only MLP ───────────────────────────────
+    if path_deg_recurrent and os.path.exists(path_deg_recurrent):
+        if path_deg and os.path.exists(path_deg):
+            run_comparison(
+                "Deg-only RecurrentPPO vs Deg-only MLP",
+                path_deg_recurrent, path_deg,
+                healthy_path,
+                lstm_a=False, lstm_b=False,
+                is_recurrent_a=True, is_recurrent_b=False,
+                out_dir="results/deg_recurrent_ablation",
+                angle_edges=angle_edges,
+            )
+        else:
+            print("\n[compare] Skipping deg_recurrent ablation — policy_deg not provided.")
+            print("  Pass --deg policies/policy_deg.zip")
+    else:
+        print("\n[compare] Skipping deg_recurrent ablation — policy_deg_recurrent not provided or missing.")
+        print("  Train with: python train_recurrent.py --no-bradykinesia")
+
     print("\n" + "=" * 60)
     print("All ablation comparisons complete.")
     print("  results/lstm_ablation/")
@@ -546,6 +614,7 @@ def main():
     print("  results/extraobs_ablation/")
     print("  results/recurrentppo_ablation/         (if policy_brady_deg_recurrent.zip available)")
     print("  results/recurrentppo_vs_lstm_ablation/ (if policy_brady_deg_recurrent.zip available)")
+    print("  results/deg_recurrent_ablation/        (if policy_deg_recurrent.zip available)")
     print("=" * 60)
 
 
