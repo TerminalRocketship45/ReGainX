@@ -290,6 +290,10 @@ def stage_algo_compare():
         if os.path.exists(path):
             cmd += [flag, path]
 
+    if not any(os.path.exists(path) for _, path in policy_flags):
+        print("  [algo_compare] Skipping — no policy files found.")
+        return
+
     if _TEST_MODE:
         cmd += ["--episodes", "2"]
 
@@ -320,6 +324,7 @@ def main():
     print("  Stage 2: Combined reward curves chart")
     print("  Stage 3: Per-policy evaluation (32 trials each)")
     print("  Stage 4: Ablation comparisons (LSTM / Brady / ExtraObs)")
+    print("  Stage 5: Cross-policy accuracy comparison (Pearson r vs healthy)")
     print("=" * 60)
 
     for path in [HEALTHY_PATH]:
