@@ -24,6 +24,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from scipy.stats import pearsonr
 import myosuite  # noqa: F401 — registers envs
 from myosuite.utils import gym
@@ -205,7 +206,7 @@ def _plot_bar(policy_labels, acc_exo, acc_no_exo, boost_pct, out_path):
         bar = ax.bar(x[i] + w / 2, acc_exo[i], w, color=f"C{i}")
         ax.text(bar[0].get_x() + bar[0].get_width() / 2,
                 acc_exo[i] + 0.015,
-                f"+{boost_pct[i]:.0f}%",
+                f"{boost_pct[i]:+.0f}%",
                 ha="center", va="bottom", fontsize=8, fontweight="bold")
 
     ax.axhline(1.0, color="black", linestyle="--", linewidth=1.5, label="Healthy (100%)")
@@ -215,7 +216,6 @@ def _plot_bar(policy_labels, acc_exo, acc_no_exo, boost_pct, out_path):
     ax.set_ylim(0, 1.18)
     ax.set_title("Algorithm Accuracy Comparison — Pearson r vs Healthy Baseline")
 
-    from matplotlib.patches import Patch
     handles, lbls = ax.get_legend_handles_labels()
     handles.append(Patch(color="steelblue", label="Impaired + exo (each policy)"))
     ax.legend(handles=handles, loc="lower right", fontsize=8)
