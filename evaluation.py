@@ -216,11 +216,18 @@ def run_eval_trial(
     if min_len > 1:
         corr, _ = pearsonr(healthy_angles[:min_len], exo_angles[:min_len])
 
+    # no-exo vs healthy
+    min_len_no = min(len(healthy_angles), len(no_exo_angles))
+    no_exo_corr = 0.0
+    if min_len_no > 1:
+        no_exo_corr, _ = pearsonr(healthy_angles[:min_len_no], no_exo_angles[:min_len_no])
+
     return {
         "healthy_angles": healthy_angles,
         "no_exo_angles": no_exo_angles,
         "exo_angles": exo_angles,
         "correlation": corr,
+        "no_exo_correlation": no_exo_corr,
         "reward": total_reward,
         "goal_achieved": goal_achieved,
         "goal_time": goal_time,
@@ -406,6 +413,9 @@ def main():
     matrix = np.full((ANGLE_BINS, SEVERITY_BINS), np.nan)
     mat_counts = np.zeros((ANGLE_BINS, SEVERITY_BINS), dtype=int)
     mat_sums = np.zeros((ANGLE_BINS, SEVERITY_BINS))
+    matrix_no_exo      = np.full((ANGLE_BINS, SEVERITY_BINS), np.nan)
+    mat_no_exo_counts  = np.zeros((ANGLE_BINS, SEVERITY_BINS), dtype=int)
+    mat_no_exo_sums    = np.zeros((ANGLE_BINS, SEVERITY_BINS))
     severity_edges = np.linspace(0.0, 1.0, SEVERITY_BINS + 1)
 
     for i, (angle_bin, sev_quartile) in enumerate(trial_plan):
@@ -432,11 +442,20 @@ def main():
                 mat_sums[angle_bin, sev_quartile] / mat_counts[angle_bin, sev_quartile]
             )
 
+        mat_no_exo_sums[angle_bin, sev_quartile]   += trial["no_exo_correlation"]
+        mat_no_exo_counts[angle_bin, sev_quartile] += 1
+        if mat_no_exo_counts[angle_bin, sev_quartile] >= 1:
+            matrix_no_exo[angle_bin, sev_quartile] = (
+                mat_no_exo_sums[angle_bin, sev_quartile]
+                / mat_no_exo_counts[angle_bin, sev_quartile]
+            )
+
         print(f"reward={trial['reward']:7.2f}  corr={trial['correlation']:.3f}  "
               f"goal={'Y' if trial['goal_achieved'] else 'N'}")
 
     # Mark cells with no trials as NaN
     matrix[mat_counts < 1] = np.nan
+    matrix_no_exo[mat_no_exo_counts < 1] = np.nan
 
     print(f"\nGenerating plots -> {out_dir}/")
     plot_joint_angle_overlay(all_trials, angle_edges, out_dir)
@@ -445,8 +464,15 @@ def main():
     plot_goal_achievement(all_trials, out_dir)
     plot_confusion_matrix(
         matrix, ANGLE_LABELS, SEVERITY_LABELS,
-        f"Movement Accuracy — {policy_basename}",
-        os.path.join(out_dir, "confusion_matrix.png"),
+        f"Movement Accuracy (with exo) — {policy_basename}",
+        os.path.join(out_dir, "confusion_matrix_with_exo.png"),
+        pct=True,
+    )
+    plot_confusion_matrix(
+        matrix_no_exo, ANGLE_LABELS, SEVERITY_LABELS,
+        f"Movement Accuracy (no exo) — {policy_basename}",
+        os.path.join(out_dir, "confusion_matrix_no_exo.png"),
+        pct=True,
     )
 
     mean_corr = float(np.nanmean([t["correlation"] for t in all_trials]))
