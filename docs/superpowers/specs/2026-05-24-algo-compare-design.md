@@ -149,8 +149,11 @@ When `pct=True`: multiply display values by 100, label cells as `{val:.0f}%`, re
 - Pass `pct=True` to both matrix plots
 
 **`compare.py` changes:**
-- Same: save `confusion_matrix_{label_a}_no_exo.png` and existing `confusion_matrix_{label_a}.png` with `pct=True`
-- The no-exo matrix uses trials from the no-exo track (needs a `run_trial_no_exo` variant or inline zero-action roll-out per ablation comparison)
+- Add a **third track** per ablation trial: after running policy_a and policy_b, also run a zero-action roll-out on `env_a` with the same seed to get `no_exo_angles`
+- Compute `matrix_no_exo` from `pearsonr(no_exo_angles, healthy_angles)` per trial, built identically to `matrix_a`/`matrix_b`
+- Save `confusion_matrix_no_exo.png` alongside the existing per-policy matrices
+- Pass `pct=True` to all three matrix plots
+- The zero-action roll-out reuses the already-constructed `env_a` — no new env instances needed
 
 ---
 
