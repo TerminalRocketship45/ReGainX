@@ -50,25 +50,28 @@ import matplotlib.pyplot as plt
 PYTHON = sys.executable
 
 HEALTHY_PATH          = "policies/healthy_policy.zip"
-POLICY_BRADY          = "policies/policy_brady_deg.zip"
-POLICY_DEG            = "policies/policy_deg.zip"
-POLICY_LSTM           = "policies/policy_brady_deg_lstm.zip"
-POLICY_DEG_LSTM       = "policies/policy_deg_lstm.zip"
-POLICY_EXTRAOBS       = "policies/policy_brady_deg_lstm_extraobs.zip"
-POLICY_RECURRENT      = "policies/policy_brady_deg_recurrent.zip"
-POLICY_DEG_RECURRENT  = "policies/policy_deg_recurrent.zip"
+POLICY_BRADY               = "policies/policy_brady_deg.zip"
+POLICY_DEG                 = "policies/policy_deg.zip"
+POLICY_LSTM                = "policies/policy_brady_deg_lstm.zip"
+POLICY_DEG_LSTM            = "policies/policy_deg_lstm.zip"
+POLICY_EXTRAOBS            = "policies/policy_brady_deg_lstm_extraobs.zip"
+POLICY_RECURRENT           = "policies/policy_brady_deg_recurrent.zip"
+POLICY_DEG_RECURRENT       = "policies/policy_deg_recurrent.zip"
+POLICY_NOISY_RECURRENT     = "policies/policy_brady_deg_recurrent_noisy.zip"
 
-LOG_BRADY             = "logs/policy_brady_deg_rewards.csv"
-LOG_DEG               = "logs/policy_deg_rewards.csv"
-LOG_LSTM              = "logs/policy_brady_deg_lstm_rewards.csv"
-LOG_DEG_LSTM          = "logs/policy_deg_lstm_rewards.csv"
-LOG_EXTRAOBS          = "logs/policy_brady_deg_lstm_extraobs_rewards.csv"
-LOG_RECURRENT         = "logs/policy_brady_deg_recurrent_rewards.csv"
-LOG_DEG_RECURRENT     = "logs/policy_deg_recurrent_rewards.csv"
+LOG_BRADY                  = "logs/policy_brady_deg_rewards.csv"
+LOG_DEG                    = "logs/policy_deg_rewards.csv"
+LOG_LSTM                   = "logs/policy_brady_deg_lstm_rewards.csv"
+LOG_DEG_LSTM               = "logs/policy_deg_lstm_rewards.csv"
+LOG_EXTRAOBS               = "logs/policy_brady_deg_lstm_extraobs_rewards.csv"
+LOG_RECURRENT              = "logs/policy_brady_deg_recurrent_rewards.csv"
+LOG_DEG_RECURRENT          = "logs/policy_deg_recurrent_rewards.csv"
+LOG_NOISY_RECURRENT        = "logs/policy_brady_deg_recurrent_noisy_rewards.csv"
 
-MLP_TIMESTEPS         = 1_000_000
-LSTM_TIMESTEPS        = 2_000_000
-DEG_RECURRENT_TIMESTEPS = 1_000_000
+MLP_TIMESTEPS              = 1_000_000
+LSTM_TIMESTEPS             = 2_000_000
+DEG_RECURRENT_TIMESTEPS    = 1_000_000
+NOISY_RECURRENT_TIMESTEPS  = 1_500_000
 EVAL_TRIALS           = 32
 
 # Overridden by --test flag
@@ -143,6 +146,12 @@ def stage_train():
                       "Train policy_deg_recurrent (RecurrentPPO, no brady)",
                       script="train_recurrent.py")
 
+    # RecurrentPPO with randomised EMG noise — 1.5M steps
+    _train_if_missing(POLICY_NOISY_RECURRENT, [],
+                      NOISY_RECURRENT_TIMESTEPS,
+                      "Train policy_brady_deg_recurrent_noisy (RecurrentPPO + EMG noise)",
+                      script="train_recurrent_noisy.py")
+
 
 # ── Stage 2: Combined reward chart ───────────────────────────────────────────
 
@@ -152,13 +161,14 @@ def stage_chart():
     print("=" * 60)
 
     series = [
-        (LOG_BRADY,         "policy_brady_deg (MLP)",              "C0", "-"),
-        (LOG_DEG,           "policy_deg (MLP)",                    "C1", "-"),
-        (LOG_LSTM,          "policy_brady_deg_lstm (CNNLSTM)",     "C2", "--"),
-        (LOG_DEG_LSTM,      "policy_deg_lstm (CNNLSTM)",           "C3", "--"),
-        (LOG_EXTRAOBS,      "policy_brady_deg_lstm_extraobs",       "C4", ":"),
-        (LOG_RECURRENT,     "policy_brady_deg_recurrent (PPO-LSTM)","C5", "-."),
-        (LOG_DEG_RECURRENT, "policy_deg_recurrent (PPO-LSTM)",      "C6", "-."),
+        (LOG_BRADY,            "policy_brady_deg (MLP)",                   "C0", "-"),
+        (LOG_DEG,              "policy_deg (MLP)",                         "C1", "-"),
+        (LOG_LSTM,             "policy_brady_deg_lstm (CNNLSTM)",          "C2", "--"),
+        (LOG_DEG_LSTM,         "policy_deg_lstm (CNNLSTM)",                "C3", "--"),
+        (LOG_EXTRAOBS,         "policy_brady_deg_lstm_extraobs",            "C4", ":"),
+        (LOG_RECURRENT,        "policy_brady_deg_recurrent (PPO-LSTM)",     "C5", "-."),
+        (LOG_DEG_RECURRENT,    "policy_deg_recurrent (PPO-LSTM)",           "C6", "-."),
+        (LOG_NOISY_RECURRENT,  "policy_brady_deg_recurrent_noisy (EMG)",    "C7", "-."),
     ]
 
     fig, ax = plt.subplots(figsize=(14, 6))
@@ -278,13 +288,14 @@ def stage_algo_compare():
         "--healthy", HEALTHY_PATH,
     ]
     policy_flags = [
-        ("--brady",         POLICY_BRADY),
-        ("--deg",           POLICY_DEG),
-        ("--lstm",          POLICY_LSTM),
-        ("--deg-lstm",      POLICY_DEG_LSTM),
-        ("--extraobs",      POLICY_EXTRAOBS),
-        ("--recurrent",     POLICY_RECURRENT),
-        ("--deg-recurrent", POLICY_DEG_RECURRENT),
+        ("--brady",           POLICY_BRADY),
+        ("--deg",             POLICY_DEG),
+        ("--lstm",            POLICY_LSTM),
+        ("--deg-lstm",        POLICY_DEG_LSTM),
+        ("--extraobs",        POLICY_EXTRAOBS),
+        ("--recurrent",       POLICY_RECURRENT),
+        ("--deg-recurrent",   POLICY_DEG_RECURRENT),
+        ("--noisy-recurrent", POLICY_NOISY_RECURRENT),
     ]
     for flag, path in policy_flags:
         if os.path.exists(path):
@@ -320,6 +331,7 @@ def main():
     print(f"           CNN-LSTM     (policy_*_lstm, policy_*_lstm_extraobs)   → {LSTM_TIMESTEPS:,} steps")
     print(f"           RecurrentPPO (policy_brady_deg_recurrent)              → {LSTM_TIMESTEPS:,} steps")
     print(f"           RecurrentPPO (policy_deg_recurrent)                   → {DEG_RECURRENT_TIMESTEPS:,} steps")
+    print(f"           RecurrentPPO (policy_brady_deg_recurrent_noisy)       → {NOISY_RECURRENT_TIMESTEPS:,} steps")
     print(f"           (already-present policies are skipped)")
     print("  Stage 2: Combined reward curves chart")
     print("  Stage 3: Per-policy evaluation (32 trials each)")
