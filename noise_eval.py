@@ -1,7 +1,7 @@
 """
 EMG Noise Robustness Evaluation
 
-Tests all policies across 30 noise levels (sigma 0.0 → 0.15).
+Tests all policies across 40 noise levels (sigma 0.0 → 0.50).
 2 fixed episodes per noise level — shared across ALL policies so every
 policy faces identical patient states, enabling fair comparison.
 
@@ -9,8 +9,10 @@ X-axis : EMG noise sigma (std of additive Gaussian noise on muscle activations)
 Y-axis : Mean Pearson r vs healthy baseline
 
 Outputs:
-  results/noise/noise_robustness.png   — line plot, one line per policy
-  results/noise/noise_robustness.csv   — raw numbers for further analysis
+  results/noise/noise_robustness.png    — absolute performance, one line per policy
+  results/noise/noise_degradation.png   — relative retention (r/r0), shows how
+                                          each policy degrades as noise grows
+  results/noise/noise_robustness.csv    — raw numbers for further analysis
 
 Usage:
   python noise_eval.py \\
@@ -49,9 +51,9 @@ from envs.temporal_buffer import TemporalStackWrapper
 JOINT_LOW          = 0.0
 JOINT_HIGH         = 2.27
 MAX_STEPS          = 200
-N_NOISE_LEVELS     = 30
+N_NOISE_LEVELS     = 40
 SIGMA_MIN          = 0.0    # clean baseline
-SIGMA_MAX          = 0.15   # ~13 dB SNR — severely noisy surface EMG
+SIGMA_MAX          = 0.50   # ~0 dB SNR — extreme / pathological noise
 EPISODES_PER_LEVEL = 2      # shared episodes (same seed) across all policies
 OUT_DIR            = "results/noise"
 BASE_SEED          = 2025   # master seed for reproducible episode generation
@@ -232,22 +234,42 @@ def _snr_db_to_sigma(snr_db: float) -> float:
     return 0.5 / (10 ** (snr_db / 20.0))
 
 
+_NOISY_LABEL = "RecPPO noisy"   # label used in CONFIGS — highlighted in both plots
+
+# SNR levels shown as vertical reference lines across the extended sigma range
+_SNR_REFS = [25, 20, 15, 10, 6]   # dB; 6 dB ≈ sigma 0.25 (pathological noise)
+
+
+def _snr_annotation(ax, sigmas):
+    """Draw vertical SNR reference lines within the plotted sigma range."""
+    lo, hi = sigmas[0], sigmas[-1]
+    for snr_db in _SNR_REFS:
+        s = _snr_db_to_sigma(snr_db)
+        if lo < s < hi:
+            ax.axvline(s, color="gray", linestyle=":", linewidth=0.8, alpha=0.65)
+            ax.text(s + (hi - lo) * 0.004, ax.get_ylim()[0] + 0.01,
+                    f"{snr_db} dB", fontsize=7, color="gray",
+                    rotation=90, va="bottom")
+
+
+def _line_style(label: str, idx: int):
+    """Return (color, linewidth, linestyle, markersize) for a policy label."""
+    if label == _NOISY_LABEL:
+        return "crimson", 2.5, "-", 5
+    return f"C{idx}", 1.6, "-", 3
+
+
 def _plot_results(sigmas: np.ndarray, results: dict, out_path: str) -> None:
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(13, 6))
 
     for i, (label, r_series) in enumerate(results.items()):
+        color, lw, ls, ms = _line_style(label, i)
+        zorder = 3 if label == _NOISY_LABEL else 2
         ax.plot(sigmas, r_series, label=label,
-                color=f"C{i}", linewidth=1.8, marker="o", markersize=3.5)
+                color=color, linewidth=lw, linestyle=ls,
+                marker="o", markersize=ms, zorder=zorder)
 
-    # SNR reference lines
-    for snr_db in [20, 15, 10]:
-        sigma_ref = _snr_db_to_sigma(snr_db)
-        if SIGMA_MIN < sigma_ref < SIGMA_MAX:
-            ax.axvline(sigma_ref, color="gray", linestyle=":", linewidth=0.9, alpha=0.7)
-            ax.text(sigma_ref + 0.001, 0.02, f"SNR {snr_db} dB",
-                    fontsize=7, color="gray", rotation=90, va="bottom")
-
-    ax.set_xlabel("EMG Noise σ (std of additive Gaussian noise on muscle activations)",
+    ax.set_xlabel("EMG Noise σ  (std of additive Gaussian noise on muscle activations)",
                   fontsize=10)
     ax.set_ylabel("Mean Pearson r  (vs Healthy)", fontsize=10)
     ax.set_title(
@@ -260,10 +282,52 @@ def _plot_results(sigmas: np.ndarray, results: dict, out_path: str) -> None:
     ax.set_xlim(SIGMA_MIN, SIGMA_MAX)
     ax.set_ylim(bottom=0)
     ax.grid(True, alpha=0.3)
+    _snr_annotation(ax, sigmas)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
-    print(f"[noise_eval] Plot → {out_path}")
+    print(f"[noise_eval] Plot     → {out_path}")
+
+
+def _plot_degradation(sigmas: np.ndarray, results: dict, out_path: str) -> None:
+    """
+    Relative performance retention: r(sigma) / r(sigma=0) for each policy.
+    All lines start at 1.0 (clean baseline). A flat line means no degradation.
+    Highlights whether the noise-trained policy resists degradation better.
+    """
+    fig, ax = plt.subplots(figsize=(13, 6))
+
+    for i, (label, r_series) in enumerate(results.items()):
+        r0 = r_series[0]
+        if r0 <= 0:
+            continue
+        retention = [r / r0 for r in r_series]
+        color, lw, ls, ms = _line_style(label, i)
+        zorder = 3 if label == _NOISY_LABEL else 2
+        ax.plot(sigmas, retention, label=label,
+                color=color, linewidth=lw, linestyle=ls,
+                marker="o", markersize=ms, zorder=zorder)
+
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=0.8, alpha=0.5,
+               label="_no degradation")
+    ax.set_xlabel("EMG Noise σ  (std of additive Gaussian noise on muscle activations)",
+                  fontsize=10)
+    ax.set_ylabel("Relative Performance  r(σ) / r(0)", fontsize=10)
+    ax.set_title(
+        "Policy Degradation Under Increasing EMG Noise\n"
+        "1.0 = no degradation  ·  lower = worse  ·  "
+        f"RecPPO noisy shown in red",
+        fontsize=11,
+    )
+    ax.legend(loc="upper right", fontsize=9)
+    ax.set_xlim(SIGMA_MIN, SIGMA_MAX)
+    ax.set_ylim(bottom=0, top=1.05)
+    ax.grid(True, alpha=0.3)
+    _snr_annotation(ax, sigmas)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    print(f"[noise_eval] Degrad. → {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -405,18 +469,24 @@ def main():
             writer.writerow(row)
     print(f"\n[noise_eval] CSV  → {csv_path}")
 
-    # Plot
-    plot_path = os.path.join(OUT_DIR, "noise_robustness.png")
+    # Plots
+    plot_path  = os.path.join(OUT_DIR, "noise_robustness.png")
+    degrad_path = os.path.join(OUT_DIR, "noise_degradation.png")
     _plot_results(sigmas, results, plot_path)
+    _plot_degradation(sigmas, results, degrad_path)
 
     # Summary table
     print("\n" + "=" * 60)
-    print("[noise_eval] Summary (r at σ=0 vs σ=max)")
+    print(f"[noise_eval] Summary (r at σ=0 vs σ={SIGMA_MAX:.2f})")
+    print(f"  {'Policy':30s}  {'r@0':>7}  {'r@max':>7}  {'drop':>7}  {'retained':>9}")
+    print("  " + "-" * 62)
     for label, r_series in results.items():
-        drop = r_series[0] - r_series[-1]
-        print(f"  {label:30s}  r@0={r_series[0]:.4f}  "
-              f"r@{SIGMA_MAX:.2f}={r_series[-1]:.4f}  "
-              f"drop={drop:+.4f}")
+        r0   = r_series[0]
+        rmax = r_series[-1]
+        drop = r0 - rmax
+        pct  = (rmax / r0 * 100) if r0 > 0 else 0.0
+        marker = " ◄" if label == _NOISY_LABEL else ""
+        print(f"  {label:30s}  {r0:7.4f}  {rmax:7.4f}  {drop:+7.4f}  {pct:7.1f}%{marker}")
     print("=" * 60)
 
 
