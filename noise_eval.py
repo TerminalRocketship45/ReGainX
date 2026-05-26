@@ -58,6 +58,12 @@ EPISODES_PER_LEVEL = 2      # shared episodes (same seed) across all policies
 OUT_DIR            = "results/noise"
 BASE_SEED          = 2025   # master seed for reproducible episode generation
 
+# Ablation-mode constants (--ablation-noise flag)
+SIGMA_MAX_ABLATION   = 1.0    # push to extreme / unrealistic noise
+N_ABLATION_LEVELS    = 50     # finer resolution
+REALISTIC_SIGMA_LOW  = 0.01   # lower bound of realistic EMG noise (SNR ≈ 34 dB)
+REALISTIC_SIGMA_HIGH = 0.10   # upper bound of realistic EMG noise (SNR ≈ 14 dB)
+
 
 # ---------------------------------------------------------------------------
 # Episode seed generation
@@ -217,6 +223,34 @@ def _run_exo_track(env: NoisyExoWrapper, policy, obs: np.ndarray,
     return angles
 
 
+def _run_exo_track_with_reward(env: NoisyExoWrapper, policy, obs: np.ndarray,
+                               is_recurrent: bool):
+    """Like _run_exo_track but also returns cumulative episode reward."""
+    base_env      = _unpack_base_env(env)
+    angles        = []
+    total_reward  = 0.0
+    lstm_states   = None
+    episode_start = np.ones((1,), dtype=bool)
+
+    for _ in range(MAX_STEPS):
+        if is_recurrent:
+            action, lstm_states = policy.predict(
+                obs, state=lstm_states,
+                episode_start=episode_start,
+                deterministic=True,
+            )
+            episode_start = np.zeros((1,), dtype=bool)
+        else:
+            action, _ = policy.predict(obs, deterministic=True)
+
+        obs, reward, done, truncated, _ = env.step(action)
+        total_reward += float(reward)
+        angles.append(float(base_env.base_env.unwrapped.sim.data.qpos[0]))
+        if done or truncated:
+            break
+    return angles, total_reward
+
+
 def _pearsonr_safe(a: list, b: list) -> float:
     n = min(len(a), len(b))
     if n < 2:
@@ -331,6 +365,214 @@ def _plot_degradation(sigmas: np.ndarray, results: dict, out_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Ablation: RecPPO vs RecPPO-noisy noise impact
+# ---------------------------------------------------------------------------
+
+def _shade_realistic(ax):
+    """Green band marking the realistic EMG noise range across the full y extent."""
+    ax.axvspan(
+        REALISTIC_SIGMA_LOW, REALISTIC_SIGMA_HIGH,
+        alpha=0.12, color="limegreen", zorder=0,
+        label=f"Realistic EMG noise  σ ∈ [{REALISTIC_SIGMA_LOW}, {REALISTIC_SIGMA_HIGH}]  "
+              f"(SNR ≈ 14–34 dB)",
+    )
+
+
+def _plot_ablation_single(sigmas: np.ndarray, r_series: list, reward_series: list,
+                           label: str, out_dir: str) -> None:
+    """Two charts for one policy: Pearson r vs sigma and episode reward vs sigma."""
+    safe_label = label.replace(" ", "_")
+    color      = "crimson" if label == _NOISY_LABEL else "steelblue"
+
+    for values, ylabel, fname_tag in [
+        (r_series,      "Mean Pearson r  (vs Healthy)",  "accuracy"),
+        (reward_series, "Mean Episode Reward",            "reward"),
+    ]:
+        fig, ax = plt.subplots(figsize=(11, 5))
+        ax.plot(sigmas, values, color=color, linewidth=2.0,
+                marker="o", markersize=3.5, zorder=3)
+        _shade_realistic(ax)
+        _snr_annotation(ax, sigmas)
+        ax.set_xlabel("EMG Noise σ  (std of additive Gaussian noise on muscle activations)",
+                      fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_title(
+            f"{label}  —  {ylabel} vs EMG Noise\n"
+            f"σ ∈ [0, {SIGMA_MAX_ABLATION:.1f}]  ·  "
+            "green shading = realistic real-world noise range",
+            fontsize=11,
+        )
+        ax.set_xlim(0, sigmas[-1])
+        ax.set_ylim(bottom=0)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+        plt.tight_layout()
+        path = os.path.join(out_dir, f"ablation_{safe_label}_{fname_tag}.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+        print(f"[noise_eval] Ablation  → {path}")
+
+
+def _plot_ablation_compare(sigmas: np.ndarray, all_data: dict, out_dir: str) -> None:
+    """
+    Two comparison charts (reward, accuracy) with both policies on one axes each.
+    all_data: {label: {"r": [...], "reward": [...]}}
+    """
+    _COLORS = {"RecPPO brady_deg": "royalblue", _NOISY_LABEL: "crimson"}
+
+    for metric_key, ylabel, fname_tag in [
+        ("r",      "Mean Pearson r  (vs Healthy)",  "accuracy"),
+        ("reward", "Mean Episode Reward",            "reward"),
+    ]:
+        fig, ax = plt.subplots(figsize=(12, 5))
+
+        for i, (label, series) in enumerate(all_data.items()):
+            color = _COLORS.get(label, f"C{i}")
+            lw    = 2.5 if label == _NOISY_LABEL else 1.8
+            ax.plot(sigmas, series[metric_key], label=label,
+                    color=color, linewidth=lw, marker="o", markersize=3.5, zorder=3)
+
+        _shade_realistic(ax)
+        _snr_annotation(ax, sigmas)
+        metric_title = "Accuracy (Pearson r)" if metric_key == "r" else "Episode Reward"
+        ax.set_xlabel("EMG Noise σ  (std of additive Gaussian noise on muscle activations)",
+                      fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_title(
+            f"{metric_title} — RecPPO vs RecPPO Noise-Trained\n"
+            "red = noise-trained  ·  blue = standard  ·  "
+            "green shading = realistic noise range",
+            fontsize=11,
+        )
+        ax.set_xlim(0, sigmas[-1])
+        ax.set_ylim(bottom=0)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9)
+        plt.tight_layout()
+        path = os.path.join(out_dir, f"ablation_compare_{fname_tag}.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+        print(f"[noise_eval] Compare   → {path}")
+
+
+def stage_ablation_noise(args) -> None:
+    """
+    --ablation-noise mode: evaluate RecPPO (standard brady) and RecPPO (noisy-trained)
+    across sigma ∈ [0, 1.0] and produce 6 charts + 1 CSV.
+
+    Outputs:
+      ablation_RecPPO_brady_deg_accuracy.png   — Pearson r vs sigma, standard policy
+      ablation_RecPPO_brady_deg_reward.png     — episode reward vs sigma, standard policy
+      ablation_RecPPO_noisy_accuracy.png       — Pearson r vs sigma, noisy policy
+      ablation_RecPPO_noisy_reward.png         — episode reward vs sigma, noisy policy
+      ablation_compare_accuracy.png            — both policies, Pearson r
+      ablation_compare_reward.png              — both policies, episode reward
+      ablation_noise.csv                       — raw numbers
+    """
+    policies_cfg = [
+        (args.recurrent,       "RecPPO brady_deg"),
+        (args.noisy_recurrent, _NOISY_LABEL),
+    ]
+    active  = [(p, lbl) for p, lbl in policies_cfg if os.path.exists(p)]
+    missing = [(p, lbl) for p, lbl in policies_cfg if not os.path.exists(p)]
+
+    for _, lbl in missing:
+        print(f"[noise_eval] --ablation-noise: skipping missing policy: {lbl}")
+
+    if not active:
+        print("[noise_eval] --ablation-noise: no recurrent policies found — train first.")
+        return
+
+    sigmas   = np.linspace(0.0, SIGMA_MAX_ABLATION, N_ABLATION_LEVELS)
+    ep_seeds = _generate_episode_seeds(EPISODES_PER_LEVEL, args.seed)
+
+    print("=" * 60)
+    print("[noise_eval] --ablation-noise: RecPPO vs RecPPO-noisy noise impact")
+    print(f"  Sigma range  : 0 → {SIGMA_MAX_ABLATION}  ({N_ABLATION_LEVELS} levels)")
+    print(f"  Episodes/lvl : {EPISODES_PER_LEVEL}")
+    print(f"  Realistic σ  : {REALISTIC_SIGMA_LOW} – {REALISTIC_SIGMA_HIGH}  (shaded on plots)")
+    print(f"  Policies     : {[lbl for _, lbl in active]}")
+    print("=" * 60)
+
+    # Healthy reference tracks
+    healthy_policy = PPO.load(args.healthy)
+    healthy_env    = gym.make("myoElbowPose1D6MRandom-v0")
+    print("\n[noise_eval] Computing healthy reference tracks...")
+    healthy_angles = [_run_healthy_track(healthy_env, healthy_policy, s) for s in ep_seeds]
+    healthy_env.close()
+
+    # Probe env for patient-state parameters
+    _probe              = _make_noisy_exo_env(args.healthy, sigma=0.0)
+    base_probe          = _unpack_base_env(_probe)
+    n_muscles           = base_probe.n_muscles
+    force_scale_range   = base_probe.force_scale_range
+    activation_slow_range = base_probe.activation_slowdown_range
+    _probe.close()
+
+    all_data: dict[str, dict] = {}
+
+    for path, label in active:
+        print(f"\n[noise_eval] Evaluating: {label}")
+        policy          = _load_policy(path, is_recurrent=True)
+        r_per_sigma     = []
+        reward_per_sigma = []
+
+        for si, sigma in enumerate(sigmas):
+            env    = _make_noisy_exo_env(args.healthy, sigma=sigma)
+            ep_rs  = []
+            ep_rwd = []
+
+            for ep_idx, seed in enumerate(ep_seeds):
+                obs = _configure_env(env, seed, n_muscles,
+                                     force_scale_range, activation_slow_range)
+                angles, total_rwd = _run_exo_track_with_reward(
+                    env, policy, obs, is_recurrent=True)
+                ep_rs.append(_pearsonr_safe(angles, healthy_angles[ep_idx]))
+                ep_rwd.append(total_rwd)
+
+            env.close()
+            r_per_sigma.append(float(np.mean(ep_rs)))
+            reward_per_sigma.append(float(np.mean(ep_rwd)))
+            print(f"  [{si+1:2d}/{N_ABLATION_LEVELS}] σ={sigma:.3f}  "
+                  f"r={r_per_sigma[-1]:.4f}  rwd={reward_per_sigma[-1]:.1f}", end="\r")
+
+        print(f"  Done.  r@σ=0={r_per_sigma[0]:.4f}  "
+              f"r@σ=1={r_per_sigma[-1]:.4f}   ")
+        all_data[label] = {"r": r_per_sigma, "reward": reward_per_sigma}
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    # Per-policy charts (2 per policy)
+    for label, series in all_data.items():
+        _plot_ablation_single(sigmas, series["r"], series["reward"], label, OUT_DIR)
+
+    # Comparison charts (2 total)
+    _plot_ablation_compare(sigmas, all_data, OUT_DIR)
+
+    # CSV
+    csv_path = os.path.join(OUT_DIR, "ablation_noise.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        header = ["sigma"]
+        for lbl in all_data:
+            header += [f"{lbl}_pearson_r", f"{lbl}_episode_reward"]
+        writer.writerow(header)
+        for si, sigma in enumerate(sigmas):
+            row = [f"{sigma:.6f}"]
+            for lbl in all_data:
+                row += [f"{all_data[lbl]['r'][si]:.6f}",
+                        f"{all_data[lbl]['reward'][si]:.4f}"]
+            writer.writerow(row)
+    print(f"[noise_eval] CSV       → {csv_path}")
+
+    print("\n" + "=" * 60)
+    print("[noise_eval] --ablation-noise complete.")
+    print(f"  results/noise/ablation_*.png  (6 charts)")
+    print(f"  results/noise/ablation_noise.csv")
+    print("=" * 60)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -370,7 +612,21 @@ def main():
                         default=POLICY_DEFAULTS["noisy_recurrent"])
     parser.add_argument("--seed", type=int, default=BASE_SEED,
                         help="Master seed for episode generation")
+    parser.add_argument("--ablation-noise", dest="ablation_noise", action="store_true",
+                        help=(
+                            "Ablation mode: evaluate only RecPPO (standard) and "
+                            "RecPPO (noisy-trained) across sigma 0 → 1.0. "
+                            "Produces 6 charts + CSV in results/noise/. "
+                            "Skips the standard all-policy evaluation."
+                        ))
     args = parser.parse_args()
+
+    if args.ablation_noise:
+        if not os.path.exists(args.healthy):
+            print(f"[noise_eval] ERROR: healthy policy not found at '{args.healthy}'")
+            return
+        stage_ablation_noise(args)
+        return
 
     if not os.path.exists(args.healthy):
         print(f"[noise_eval] ERROR: healthy policy not found at '{args.healthy}'")
