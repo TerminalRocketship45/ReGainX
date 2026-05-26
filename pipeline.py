@@ -71,7 +71,7 @@ LOG_NOISY_RECURRENT        = "logs/policy_brady_deg_recurrent_noisy_rewards.csv"
 MLP_TIMESTEPS              = 1_000_000
 LSTM_TIMESTEPS             = 2_000_000
 DEG_RECURRENT_TIMESTEPS    = 1_000_000
-NOISY_RECURRENT_TIMESTEPS  = 1_500_000
+NOISY_RECURRENT_TIMESTEPS  = 500_000
 EVAL_TRIALS           = 32
 
 # Overridden by --test flag
