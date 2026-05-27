@@ -573,6 +573,206 @@ def stage_ablation_noise(args) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Focused noise: deep comparison within the realistic EMG noise range
+# ---------------------------------------------------------------------------
+
+FOCUSED_N_LEVELS = 20   # sigma levels within [REALISTIC_SIGMA_LOW, REALISTIC_SIGMA_HIGH]
+
+
+def _annotate_winner(ax, label_a: str, vals_a: list,
+                     label_b: str, vals_b: list, metric_short: str) -> None:
+    """Top-right box: which policy wins and by what % of mean metric."""
+    mean_a, mean_b = float(np.mean(vals_a)), float(np.mean(vals_b))
+    if mean_a >= mean_b:
+        winner, mean_w, mean_l = label_a, mean_a, mean_b
+    else:
+        winner, mean_w, mean_l = label_b, mean_b, mean_a
+    pct = (mean_w - mean_l) / abs(mean_l) * 100 if mean_l != 0 else float("nan")
+    pct_str = f"+{pct:.1f}%" if not np.isnan(pct) else "N/A"
+    ax.text(
+        0.98, 0.97,
+        f"{winner}\n{pct_str} mean {metric_short}",
+        transform=ax.transAxes, ha="right", va="top", fontsize=9,
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                  edgecolor="gray", alpha=0.88),
+    )
+
+
+def _plot_focused_compare(sigmas: np.ndarray, all_data: dict,
+                           out_dir: str, n_episodes: int) -> None:
+    """
+    Two charts (accuracy, reward) comparing both policies within [0.01, 0.10].
+    The whole x-axis IS the realistic range — shaded lightly to reinforce that.
+    Winner annotation in the top-right corner.
+    all_data: {label: {"r": [...], "reward": [...]}}
+    """
+    _COLORS = {"RecPPO brady_deg": "royalblue", _NOISY_LABEL: "crimson"}
+
+    for metric_key, ylabel, fname_tag, metric_short in [
+        ("r",      "Mean Pearson r  (vs Healthy)",  "accuracy", "Pearson r"),
+        ("reward", "Mean Episode Reward",            "reward",   "reward"),
+    ]:
+        fig, ax = plt.subplots(figsize=(12, 5))
+
+        # Light green wash — the whole window is the realistic range
+        ax.axvspan(sigmas[0], sigmas[-1], alpha=0.07, color="limegreen", zorder=0,
+                   label="Realistic EMG noise range  (SNR 14–34 dB)")
+
+        labels_ordered = list(all_data.keys())
+        for i, label in enumerate(labels_ordered):
+            color = _COLORS.get(label, f"C{i}")
+            lw    = 2.5 if label == _NOISY_LABEL else 1.8
+            ax.plot(sigmas, all_data[label][metric_key], label=label,
+                    color=color, linewidth=lw, marker="o", markersize=4, zorder=3)
+
+        _snr_annotation(ax, sigmas)
+
+        if len(labels_ordered) == 2:
+            lbl_a, lbl_b = labels_ordered[0], labels_ordered[1]
+            _annotate_winner(ax,
+                             lbl_a, all_data[lbl_a][metric_key],
+                             lbl_b, all_data[lbl_b][metric_key],
+                             metric_short)
+
+        ax.set_xlabel(
+            f"EMG Noise σ  (realistic surface EMG range  "
+            f"[{REALISTIC_SIGMA_LOW}, {REALISTIC_SIGMA_HIGH}])",
+            fontsize=10,
+        )
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_title(
+            f"Focused Noise Evaluation — {ylabel}\n"
+            f"{n_episodes} episodes per sigma level  ·  "
+            f"{FOCUSED_N_LEVELS} levels  ·  "
+            f"σ ∈ [{REALISTIC_SIGMA_LOW}, {REALISTIC_SIGMA_HIGH}]",
+            fontsize=11,
+        )
+        ax.set_xlim(sigmas[0], sigmas[-1])
+        ax.set_ylim(bottom=0)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9, loc="upper right")
+        plt.tight_layout()
+        path = os.path.join(out_dir, f"focused_noise_{fname_tag}.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+        print(f"[noise_eval] Focused   → {path}")
+
+
+def stage_focused_noise(args) -> None:
+    """
+    --focused-noise mode: deep evaluation of RecPPO vs RecPPO-noisy within
+    sigma ∈ [0.01, 0.10] using many episodes for a reliable trend.
+
+    Outputs:
+      focused_noise_accuracy.png   — Pearson r comparison with winner annotation
+      focused_noise_reward.png     — episode reward comparison with winner annotation
+      focused_noise.csv            — raw numbers
+    """
+    policies_cfg = [
+        (args.recurrent,       "RecPPO brady_deg"),
+        (args.noisy_recurrent, _NOISY_LABEL),
+    ]
+    active  = [(p, lbl) for p, lbl in policies_cfg if os.path.exists(p)]
+    missing = [(p, lbl) for p, lbl in policies_cfg if not os.path.exists(p)]
+
+    for _, lbl in missing:
+        print(f"[noise_eval] --focused-noise: skipping missing policy: {lbl}")
+
+    if not active:
+        print("[noise_eval] --focused-noise: no recurrent policies found — train first.")
+        return
+
+    n_eps    = args.focused_episodes
+    sigmas   = np.linspace(REALISTIC_SIGMA_LOW, REALISTIC_SIGMA_HIGH, FOCUSED_N_LEVELS)
+    ep_seeds = _generate_episode_seeds(n_eps, args.seed)
+
+    print("=" * 60)
+    print("[noise_eval] --focused-noise: deep eval within realistic noise range")
+    print(f"  Sigma range  : {REALISTIC_SIGMA_LOW} → {REALISTIC_SIGMA_HIGH}  "
+          f"({FOCUSED_N_LEVELS} levels)")
+    print(f"  Episodes/lvl : {n_eps}")
+    print(f"  Total evals  : {FOCUSED_N_LEVELS * n_eps * len(active)} episodes total")
+    print(f"  Policies     : {[lbl for _, lbl in active]}")
+    print("=" * 60)
+
+    # Healthy reference tracks (one per episode seed, shared across all sigma levels)
+    healthy_policy = PPO.load(args.healthy)
+    healthy_env    = gym.make("myoElbowPose1D6MRandom-v0")
+    print(f"\n[noise_eval] Computing {n_eps} healthy reference tracks...")
+    healthy_angles = []
+    for i, seed in enumerate(ep_seeds):
+        healthy_angles.append(_run_healthy_track(healthy_env, healthy_policy, seed))
+        print(f"  [{i+1:3d}/{n_eps}]", end="\r")
+    healthy_env.close()
+    print(f"  Done.")
+
+    # Probe env for patient-state parameters
+    _probe              = _make_noisy_exo_env(args.healthy, sigma=0.0)
+    base_probe          = _unpack_base_env(_probe)
+    n_muscles           = base_probe.n_muscles
+    force_scale_range   = base_probe.force_scale_range
+    activation_slow_range = base_probe.activation_slowdown_range
+    _probe.close()
+
+    all_data: dict[str, dict] = {}
+
+    for path, label in active:
+        print(f"\n[noise_eval] Evaluating: {label}  ({n_eps} eps × {FOCUSED_N_LEVELS} levels)")
+        policy           = _load_policy(path, is_recurrent=True)
+        r_per_sigma      = []
+        reward_per_sigma = []
+
+        for si, sigma in enumerate(sigmas):
+            env    = _make_noisy_exo_env(args.healthy, sigma=sigma)
+            ep_rs  = []
+            ep_rwd = []
+
+            for ep_idx, seed in enumerate(ep_seeds):
+                obs = _configure_env(env, seed, n_muscles,
+                                     force_scale_range, activation_slow_range)
+                angles, total_rwd = _run_exo_track_with_reward(
+                    env, policy, obs, is_recurrent=True)
+                ep_rs.append(_pearsonr_safe(angles, healthy_angles[ep_idx]))
+                ep_rwd.append(total_rwd)
+
+            env.close()
+            r_per_sigma.append(float(np.mean(ep_rs)))
+            reward_per_sigma.append(float(np.mean(ep_rwd)))
+            print(f"  [{si+1:2d}/{FOCUSED_N_LEVELS}] σ={sigma:.4f}  "
+                  f"r={r_per_sigma[-1]:.4f}  rwd={reward_per_sigma[-1]:.1f}", end="\r")
+
+        print(f"  Done.  mean r={float(np.mean(r_per_sigma)):.4f}  "
+              f"mean rwd={float(np.mean(reward_per_sigma)):.2f}   ")
+        all_data[label] = {"r": r_per_sigma, "reward": reward_per_sigma}
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+    _plot_focused_compare(sigmas, all_data, OUT_DIR, n_eps)
+
+    # CSV
+    csv_path = os.path.join(OUT_DIR, "focused_noise.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        header = ["sigma"]
+        for lbl in all_data:
+            header += [f"{lbl}_pearson_r", f"{lbl}_episode_reward"]
+        writer.writerow(header)
+        for si, sigma in enumerate(sigmas):
+            row = [f"{sigma:.6f}"]
+            for lbl in all_data:
+                row += [f"{all_data[lbl]['r'][si]:.6f}",
+                        f"{all_data[lbl]['reward'][si]:.4f}"]
+            writer.writerow(row)
+    print(f"[noise_eval] CSV       → {csv_path}")
+
+    print("\n" + "=" * 60)
+    print("[noise_eval] --focused-noise complete.")
+    print(f"  results/noise/focused_noise_accuracy.png")
+    print(f"  results/noise/focused_noise_reward.png")
+    print(f"  results/noise/focused_noise.csv")
+    print("=" * 60)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -619,6 +819,17 @@ def main():
                             "Produces 6 charts + CSV in results/noise/. "
                             "Skips the standard all-policy evaluation."
                         ))
+    parser.add_argument("--focused-noise", dest="focused_noise", action="store_true",
+                        help=(
+                            "Deep comparison of RecPPO vs RecPPO-noisy within the "
+                            "realistic noise range (sigma 0.01–0.10, SNR 14–34 dB). "
+                            "Uses many episodes for a reliable trend. "
+                            "Set episode count with --focused-episodes (default 100). "
+                            "Produces focused_noise_accuracy.png + focused_noise_reward.png."
+                        ))
+    parser.add_argument("--focused-episodes", dest="focused_episodes",
+                        type=int, default=100,
+                        help="Episodes per sigma level for --focused-noise (default: 100)")
     args = parser.parse_args()
 
     if args.ablation_noise:
@@ -626,6 +837,13 @@ def main():
             print(f"[noise_eval] ERROR: healthy policy not found at '{args.healthy}'")
             return
         stage_ablation_noise(args)
+        return
+
+    if args.focused_noise:
+        if not os.path.exists(args.healthy):
+            print(f"[noise_eval] ERROR: healthy policy not found at '{args.healthy}'")
+            return
+        stage_focused_noise(args)
         return
 
     if not os.path.exists(args.healthy):
