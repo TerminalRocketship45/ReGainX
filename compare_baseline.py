@@ -311,3 +311,114 @@ def run_trial(
         "baseline_goal":        baseline_result["goal_achieved"],
         "recurrent_goal":       recurrent_result["goal_achieved"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
+
+def plot_comparison_metrics(trials: list, no_exo_mean: float, out_dir: str) -> None:
+    """
+    4-panel combined figure:
+      Panel 1 (top-left)   : Reward per episode
+      Panel 2 (top-right)  : Mean Pearson r bar chart (baseline vs RecPPO vs no-exo)
+      Panel 3 (bottom-left): Pearson r per episode — sequential with gap shading
+      Panel 4 (bottom-right): Pearson r per episode — sorted by severity
+    """
+    n = len(trials)
+    eps = np.arange(1, n + 1)
+
+    baseline_rewards  = [t["baseline_reward"]  for t in trials]
+    recurrent_rewards = [t["recurrent_reward"] for t in trials]
+    baseline_r        = np.array([t["baseline_corr"]    for t in trials])
+    recurrent_r       = np.array([t["recurrent_corr"]   for t in trials])
+    severities        = [t["severity"]          for t in trials]
+
+    mean_base  = float(np.mean(baseline_r))
+    mean_rec   = float(np.mean(recurrent_r))
+    boost_base = compute_boost_pct(mean_base, no_exo_mean)
+    boost_rec  = compute_boost_pct(mean_rec,  no_exo_mean)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle("Baseline (MLP deg-only) vs RecPPO on Brady+Deg Environment",
+                 fontsize=13, fontweight="bold")
+
+    # --- Panel 1: Reward per episode ---
+    ax = axes[0, 0]
+    ax.plot(eps, baseline_rewards,  color="steelblue", linewidth=1.2,
+            label=f"MLP deg-only  (mean={np.mean(baseline_rewards):.1f})")
+    ax.plot(eps, recurrent_rewards, color="coral",     linewidth=1.2,
+            label=f"RecPPO brady+deg (mean={np.mean(recurrent_rewards):.1f})")
+    ax.axhline(np.mean(baseline_rewards),  color="steelblue", linestyle="--",
+               linewidth=0.8, alpha=0.6)
+    ax.axhline(np.mean(recurrent_rewards), color="coral",     linestyle="--",
+               linewidth=0.8, alpha=0.6)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Cumulative Reward")
+    ax.set_title("Reward per Episode")
+    ax.legend(fontsize=8)
+
+    # --- Panel 2: Mean Pearson r bar chart ---
+    ax = axes[0, 1]
+    bar_labels = ["MLP deg-only\n(baseline)", "RecPPO\nbrady+deg", "No-Exo\nfloor"]
+    values = [mean_base, mean_rec, no_exo_mean]
+    colors = ["steelblue", "coral", "gray"]
+    bars = ax.bar(bar_labels, values, color=colors, alpha=0.85, width=0.5)
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1.2, label="Healthy (1.0)")
+    for bar, val, boost in zip(bars[:2], [mean_base, mean_rec], [boost_base, boost_rec]):
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                min(val + 0.02, 1.12),
+                f"+{boost:.0f}%\ntoward healthy",
+                ha="center", va="bottom", fontsize=8, fontweight="bold")
+    ax.set_ylim(0, 1.2)
+    ax.set_ylabel("Mean Pearson r (vs Healthy)")
+    ax.set_title("Mean Accuracy — Pearson r")
+    ax.legend(fontsize=8)
+
+    # --- Panel 3: Pearson r per episode — sequential ---
+    ax = axes[1, 0]
+    ax.plot(eps, baseline_r,  color="steelblue", linewidth=1.2, label="MLP deg-only")
+    ax.plot(eps, recurrent_r, color="coral",     linewidth=1.2, label="RecPPO")
+    ax.fill_between(eps, baseline_r, recurrent_r,
+                    where=(recurrent_r >= baseline_r), alpha=0.15, color="coral",
+                    label="RecPPO advantage")
+    ax.fill_between(eps, baseline_r, recurrent_r,
+                    where=(recurrent_r < baseline_r), alpha=0.15, color="steelblue",
+                    label="Baseline advantage")
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=0.8, label="Healthy")
+    ax.axhline(no_exo_mean, color="gray", linestyle=":", linewidth=0.8,
+               label=f"No-exo floor ({no_exo_mean:.3f})")
+    ax.set_xlabel("Episode (sequential)")
+    ax.set_ylabel("Pearson r (vs Healthy)")
+    ax.set_title("Pearson r Per Episode — Sequential")
+    ax.legend(fontsize=7)
+
+    # --- Panel 4: Pearson r sorted by severity ---
+    sort_idx   = np.argsort(severities)
+    sorted_sev = np.array(severities)[sort_idx]
+    sorted_br  = baseline_r[sort_idx]
+    sorted_rr  = recurrent_r[sort_idx]
+    ax = axes[1, 1]
+    ax.plot(range(n), sorted_br, color="steelblue", linewidth=1.2, label="MLP deg-only")
+    ax.plot(range(n), sorted_rr, color="coral",     linewidth=1.2, label="RecPPO")
+    ax.fill_between(range(n), sorted_br, sorted_rr,
+                    where=(sorted_rr >= sorted_br), alpha=0.15, color="coral")
+    ax.fill_between(range(n), sorted_br, sorted_rr,
+                    where=(sorted_rr < sorted_br), alpha=0.15, color="steelblue")
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=0.8)
+    ax.axhline(no_exo_mean, color="gray", linestyle=":", linewidth=0.8)
+    q_edges = np.percentile(sorted_sev, [25, 50, 75])
+    for q in q_edges:
+        idx = np.searchsorted(sorted_sev, q)
+        ax.axvline(idx, color="dimgray", linestyle=":", linewidth=0.7, alpha=0.6)
+    ax.set_xlabel("Episodes (sorted mild → severe)")
+    ax.set_ylabel("Pearson r (vs Healthy)")
+    ax.set_title("Pearson r Sorted by Severity")
+    ax.legend(fontsize=7)
+
+    plt.tight_layout()
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "comparison_metrics.png")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved -> {out_path}")
