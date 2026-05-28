@@ -214,3 +214,100 @@ def compute_boost_pct(acc: float, floor: float) -> float:
     """Percentage of remaining gap from floor to 1.0 that acc fills."""
     gap = max(1.0 - floor, 1e-9)
     return float(np.clip((acc - floor) / gap * 100.0, 0.0, 100.0))
+
+
+# ---------------------------------------------------------------------------
+# Full trial (4 tracks)
+# ---------------------------------------------------------------------------
+
+def run_trial(
+    exo_env,
+    base_env,
+    healthy_env,
+    baseline_policy,
+    recurrent_policy,
+    healthy_policy,
+    angle_bin: int,
+    sev_quartile: int,
+    angle_edges: np.ndarray,
+) -> dict:
+    """
+    Run all four tracks for one episode:
+      1. Healthy
+      2. No-exo (zero action, same patient state)
+      3. Baseline (policy_deg)
+      4. RecPPO (policy_brady_deg_recurrent)
+
+    Patient state is sampled from the given (angle_bin, sev_quartile) cell
+    and applied identically to tracks 2-4.
+    """
+    # Sample patient state
+    target_angle = angle_bin_to_target(angle_bin, angle_edges)
+    fs_range, sl_range, mf_range = severity_quartile_to_range(sev_quartile)
+    force_scale         = float(np.random.uniform(*fs_range))
+    activation_slowdown = float(np.random.uniform(*sl_range))
+    avg_mf_target       = float(np.random.uniform(*mf_range))
+
+    n_muscles  = base_env.n_muscles
+    mf_vals    = np.random.uniform(
+        max(avg_mf_target * 0.9, 0.0),
+        min(avg_mf_target * 1.1, 1.0),
+        size=n_muscles,
+    )
+    split_vals = np.random.uniform(0.0, 1.0, size=n_muscles)
+
+    # Track 1: Healthy
+    healthy_angles = run_healthy_track(healthy_env, healthy_policy, target_angle)
+
+    actual_avg_mf = float(np.mean(mf_vals))
+    severity = compute_severity(force_scale, activation_slowdown, actual_avg_mf)
+
+    # Track 2: No-exo (zero action, same patient state)
+    exo_env.reset()
+    configure_patient(base_env, target_angle, force_scale,
+                      activation_slowdown, mf_vals, split_vals)
+    zero_action = np.zeros(exo_env.action_space.shape, dtype=np.float32)
+    no_exo_angles = []
+    for _ in range(MAX_STEPS):
+        _, _, done, truncated, _ = exo_env.step(zero_action)
+        no_exo_angles.append(float(base_env.base_env.unwrapped.sim.data.qpos[0]))
+        if done or truncated:
+            break
+
+    # Track 3: Baseline (MLP deg-only, not recurrent)
+    baseline_result = run_exo_track(
+        exo_env, base_env, baseline_policy,
+        target_angle, force_scale, activation_slowdown,
+        mf_vals, split_vals, is_recurrent=False,
+    )
+
+    # Track 4: RecPPO
+    recurrent_result = run_exo_track(
+        exo_env, base_env, recurrent_policy,
+        target_angle, force_scale, activation_slowdown,
+        mf_vals, split_vals, is_recurrent=True,
+    )
+
+    def _safe_r(a, b):
+        n = min(len(a), len(b))
+        if n < 2:
+            return 0.0
+        raw_r, _ = pearsonr(a[:n], b[:n])
+        return float(raw_r) if not np.isnan(raw_r) else 0.0
+
+    return {
+        "angle_bin":            angle_bin,
+        "sev_quartile":         sev_quartile,
+        "target_angle":         target_angle,
+        "force_scale":          force_scale,
+        "activation_slowdown":  activation_slowdown,
+        "avg_mf":               actual_avg_mf,
+        "severity":             severity,
+        "baseline_corr":        _safe_r(baseline_result["angles"],  healthy_angles),
+        "recurrent_corr":       _safe_r(recurrent_result["angles"], healthy_angles),
+        "no_exo_corr":          _safe_r(no_exo_angles,             healthy_angles),
+        "baseline_reward":      baseline_result["reward"],
+        "recurrent_reward":     recurrent_result["reward"],
+        "baseline_goal":        baseline_result["goal_achieved"],
+        "recurrent_goal":       recurrent_result["goal_achieved"],
+    }
