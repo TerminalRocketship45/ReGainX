@@ -14,7 +14,7 @@ def test_build_matrix_fills_correct_cells():
         {"angle_bin": 1, "severity": 0.6, "test_corr": 0.5},
     ]
 
-    matrix = build_matrix(trials, "test_corr", severity_edges, angle_edges)
+    matrix = build_matrix(trials, "test_corr", severity_edges)
 
     assert matrix.shape == (4, 4)
     # Cell (0,0): mean of 0.8 and 0.6
@@ -30,7 +30,7 @@ def test_build_matrix_empty_returns_all_nan():
 
     severity_edges = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
     angle_edges    = np.linspace(0.0, 2.27, 5)
-    matrix = build_matrix([], "corr", severity_edges, angle_edges)
+    matrix = build_matrix([], "corr", severity_edges)
     assert matrix.shape == (4, 4)
     assert np.all(np.isnan(matrix))
 

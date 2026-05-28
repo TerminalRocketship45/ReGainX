@@ -186,11 +186,10 @@ def build_matrix(
     trials: list,
     corr_key: str,
     severity_edges: np.ndarray,
-    angle_edges: np.ndarray,
 ) -> np.ndarray:
     """
     Build 4×4 Pearson-r matrix (angle bins × severity quartiles).
-    Cells with no trials are NaN.
+    Cells with no trials are NaN. angle_bin must be pre-stored in each trial dict.
     """
     matrix = np.full((ANGLE_BINS, SEVERITY_BINS), np.nan)
     counts = np.zeros((ANGLE_BINS, SEVERITY_BINS), dtype=int)
