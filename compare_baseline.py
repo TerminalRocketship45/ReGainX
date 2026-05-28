@@ -476,6 +476,53 @@ def plot_pearsonr_by_severity(trials: list, no_exo_mean: float, out_dir: str) ->
     print(f"  Saved -> {out_path}")
 
 
+def plot_reward_comparison(trials: list, out_dir: str) -> None:
+    """
+    Standalone reward comparison — per-episode cumulative reward for both policies,
+    plus a difference line showing RecPPO - Baseline per episode.
+    """
+    n = len(trials)
+    eps = np.arange(1, n + 1)
+    baseline_r  = np.array([t["baseline_reward"]  for t in trials])
+    recurrent_r = np.array([t["recurrent_reward"] for t in trials])
+    diff        = recurrent_r - baseline_r
+
+    mean_base = float(np.mean(baseline_r))
+    mean_rec  = float(np.mean(recurrent_r))
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True,
+                                    gridspec_kw={"height_ratios": [2, 1]})
+    fig.suptitle("Reward Comparison — MLP deg-only vs RecPPO on Brady+Deg Environment",
+                 fontsize=12, fontweight="bold")
+
+    # Top panel: raw rewards
+    ax1.plot(eps, baseline_r,  color="steelblue", linewidth=1.3,
+             label=f"MLP deg-only  (mean={mean_base:.1f})")
+    ax1.plot(eps, recurrent_r, color="coral",     linewidth=1.3,
+             label=f"RecPPO brady+deg (mean={mean_rec:.1f})")
+    ax1.axhline(mean_base, color="steelblue", linestyle="--", linewidth=0.8, alpha=0.6)
+    ax1.axhline(mean_rec,  color="coral",     linestyle="--", linewidth=0.8, alpha=0.6)
+    ax1.set_ylabel("Cumulative Episode Reward", fontsize=11)
+    ax1.legend(fontsize=9)
+    ax1.set_title("Per-Episode Reward")
+
+    # Bottom panel: difference (RecPPO - Baseline)
+    ax2.bar(eps, diff, color=np.where(diff >= 0, "coral", "steelblue"), alpha=0.7, width=0.8)
+    ax2.axhline(0, color="black", linewidth=0.8)
+    ax2.axhline(float(np.mean(diff)), color="dimgray", linestyle="--", linewidth=1.0,
+                label=f"Mean diff = {np.mean(diff):+.1f}")
+    ax2.set_xlabel("Episode", fontsize=11)
+    ax2.set_ylabel("RecPPO − Baseline", fontsize=11)
+    ax2.set_title("Reward Difference per Episode (coral = RecPPO wins, blue = Baseline wins)")
+    ax2.legend(fontsize=9)
+
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, "reward_comparison.png")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved -> {out_path}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -579,6 +626,7 @@ def main():
 
     plot_comparison_metrics(all_trials, no_exo_mean, OUT_DIR)
     plot_pearsonr_by_severity(all_trials, no_exo_mean, OUT_DIR)
+    plot_reward_comparison(all_trials, OUT_DIR)
 
     # Summary
     boost_base = compute_boost_pct(mean_base, no_exo_mean)
@@ -605,6 +653,7 @@ def main():
         "confusion_matrix_no_exo.png",
         "comparison_metrics.png",
         "pearsonr_by_severity.png",
+        "reward_comparison.png",
     ]:
         print(f"  {fname}")
 
