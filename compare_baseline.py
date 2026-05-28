@@ -422,3 +422,55 @@ def plot_comparison_metrics(trials: list, no_exo_mean: float, out_dir: str) -> N
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved -> {out_path}")
+
+
+def plot_pearsonr_by_severity(trials: list, no_exo_mean: float, out_dir: str) -> None:
+    """
+    Standalone larger version of Panel 4 — Pearson r sorted by severity.
+    Easier to include in a report than the 4-panel figure.
+    """
+    severities  = np.array([t["severity"]       for t in trials])
+    baseline_r  = np.array([t["baseline_corr"]  for t in trials])
+    recurrent_r = np.array([t["recurrent_corr"] for t in trials])
+
+    sort_idx    = np.argsort(severities)
+    sorted_sev  = severities[sort_idx]
+    sorted_br   = baseline_r[sort_idx]
+    sorted_rr   = recurrent_r[sort_idx]
+    n           = len(trials)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(range(n), sorted_br, color="steelblue", linewidth=1.5,
+            label="MLP deg-only (baseline)")
+    ax.plot(range(n), sorted_rr, color="coral",     linewidth=1.5,
+            label="RecPPO brady+deg")
+    ax.fill_between(range(n), sorted_br, sorted_rr,
+                    where=(sorted_rr >= sorted_br), alpha=0.18, color="coral",
+                    label="RecPPO advantage")
+    ax.fill_between(range(n), sorted_br, sorted_rr,
+                    where=(sorted_rr < sorted_br), alpha=0.18, color="steelblue",
+                    label="Baseline advantage")
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1.0,
+               label="Healthy (Pearson r = 1.0)")
+    ax.axhline(no_exo_mean, color="gray", linestyle=":", linewidth=1.0,
+               label=f"No-exo floor ({no_exo_mean:.3f})")
+
+    if len(np.unique(sorted_sev)) > 1:
+        q_edges = np.percentile(sorted_sev, [25, 50, 75])
+        for qi, q in enumerate(q_edges):
+            idx = int(np.searchsorted(sorted_sev, q))
+            ax.axvline(idx, color="dimgray", linestyle=":", linewidth=0.8, alpha=0.7)
+            ax.text(idx + 0.3, 0.02, f"Q{qi+2}", fontsize=8, color="dimgray")
+
+    ax.set_xlabel("Episodes sorted by patient severity (mild -> severe)", fontsize=11)
+    ax.set_ylabel("Pearson r (vs Healthy)", fontsize=11)
+    ax.set_title("Policy Performance vs Patient Severity — Baseline vs RecPPO",
+                 fontsize=12)
+    ax.set_ylim(-0.1, 1.15)
+    ax.legend(fontsize=9, loc="upper right")
+
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, "pearsonr_by_severity.png")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved -> {out_path}")
