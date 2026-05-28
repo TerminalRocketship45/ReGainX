@@ -474,3 +474,140 @@ def plot_pearsonr_by_severity(trials: list, no_exo_mean: float, out_dir: str) ->
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved -> {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    if not _HAS_RECURRENT_PPO:
+        raise ImportError("sb3_contrib not installed — run: pip install sb3-contrib")
+
+    for path, name in [
+        (HEALTHY_PATH,   "healthy_policy.zip"),
+        (BASELINE_PATH,  "policy_deg.zip"),
+        (RECURRENT_PATH, "policy_brady_deg_recurrent.zip"),
+    ]:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Policy not found: {path}")
+
+    print("=" * 60)
+    print("reGainX -- Baseline vs RecPPO Comparison")
+    print(f"  Episodes  : {N_EPISODES}  (5 per cell, 4x4 grid)")
+    print(f"  Baseline  : policy_deg (MLP, deg-only trained)")
+    print(f"  RecPPO    : policy_brady_deg_recurrent")
+    print(f"  Env       : brady+deg (bradykinesia=True, smart_reset=True)")
+    print(f"  Output    : {OUT_DIR}/")
+    print("=" * 60)
+
+    # Load policies
+    healthy_policy   = PPO.load(HEALTHY_PATH)
+    baseline_policy  = PPO.load(BASELINE_PATH)
+    recurrent_policy = RecurrentPPO.load(RECURRENT_PATH)
+
+    # Build environments
+    healthy_env = gym.make("myoElbowPose1D6MRandom-v0")
+    base_raw    = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
+    exo_env     = CombinedExoOnlyWrapper(
+        base_raw,
+        frozen_policy_path=HEALTHY_PATH,
+        bradykinesia=True,
+        smart_reset=True,
+        hide_pose_err=True,
+        extra_obs=False,
+    )
+    base_env = exo_env  # CombinedExoOnlyWrapper IS the base_env (no LSTM wrapper)
+
+    # Angle edges from env range
+    tmp  = gym.make("myoFatiElbowPose1D6MExoRandom-v0")
+    low  = float(tmp.unwrapped.target_jnt_range[0, 0])
+    high = float(tmp.unwrapped.target_jnt_range[0, 1])
+    tmp.close()
+    angle_edges = np.linspace(low, high, ANGLE_BINS + 1)
+
+    # Episode plan: 80 trials, 5 per cell
+    trial_plan = plan_trials(N_EPISODES)
+    print(f"\nRunning {N_EPISODES} trials across {ANGLE_BINS}x{SEVERITY_BINS} matrix cells")
+
+    all_trials = []
+    for i, (angle_bin, sev_quartile) in enumerate(trial_plan):
+        print(f"  Trial {i+1:3d}/{N_EPISODES}  cell=({angle_bin},{sev_quartile})", end="  ")
+        t = run_trial(
+            exo_env, base_env, healthy_env,
+            baseline_policy, recurrent_policy, healthy_policy,
+            angle_bin, sev_quartile, angle_edges,
+        )
+        all_trials.append(t)
+        print(f"base_r={t['baseline_corr']:.3f}  rec_r={t['recurrent_corr']:.3f}  "
+              f"sev={t['severity']:.2f}")
+
+    healthy_env.close()
+    exo_env.close()
+
+    # Severity edges from observed severities
+    all_sev        = [t["severity"] for t in all_trials]
+    severity_edges = np.percentile(all_sev, [0, 25, 50, 75, 100])
+
+    no_exo_mean = float(np.mean([t["no_exo_corr"]      for t in all_trials]))
+    mean_base   = float(np.mean([t["baseline_corr"]    for t in all_trials]))
+    mean_rec    = float(np.mean([t["recurrent_corr"]   for t in all_trials]))
+
+    # Generate outputs
+    os.makedirs(OUT_DIR, exist_ok=True)
+    print(f"\nGenerating plots -> {OUT_DIR}/")
+
+    matrix_base   = build_matrix(all_trials, "baseline_corr",  severity_edges)
+    matrix_rec    = build_matrix(all_trials, "recurrent_corr", severity_edges)
+    matrix_no_exo = build_matrix(all_trials, "no_exo_corr",    severity_edges)
+
+    plot_confusion_matrix(
+        matrix_base, ANGLE_LABELS, SEVERITY_LABELS,
+        "Movement Accuracy (MLP deg-only on brady+deg env)",
+        os.path.join(OUT_DIR, "confusion_matrix_baseline.png"), pct=True,
+    )
+    plot_confusion_matrix(
+        matrix_rec, ANGLE_LABELS, SEVERITY_LABELS,
+        "Movement Accuracy (RecPPO brady+deg)",
+        os.path.join(OUT_DIR, "confusion_matrix_recppo.png"), pct=True,
+    )
+    plot_confusion_matrix(
+        matrix_no_exo, ANGLE_LABELS, SEVERITY_LABELS,
+        "Movement Accuracy (No-Exo Floor)",
+        os.path.join(OUT_DIR, "confusion_matrix_no_exo.png"), pct=True,
+    )
+
+    plot_comparison_metrics(all_trials, no_exo_mean, OUT_DIR)
+    plot_pearsonr_by_severity(all_trials, no_exo_mean, OUT_DIR)
+
+    # Summary
+    boost_base = compute_boost_pct(mean_base, no_exo_mean)
+    boost_rec  = compute_boost_pct(mean_rec,  no_exo_mean)
+    rec_adv    = mean_rec - mean_base
+
+    print(f"\n{'='*60}")
+    print("Baseline Comparison Summary")
+    print(f"  Episodes         : {N_EPISODES}")
+    print(f"  Baseline policy  : policy_deg (MLP, deg-only trained)")
+    print(f"  RecPPO policy    : policy_brady_deg_recurrent")
+    print()
+    print(f"  Mean Pearson r  (Baseline) : {mean_base:.4f}")
+    print(f"  Mean Pearson r  (RecPPO)   : {mean_rec:.4f}")
+    print(f"  Mean Pearson r  (No-exo)   : {no_exo_mean:.4f}")
+    print(f"  Boost Baseline             : +{boost_base:.1f}% toward healthy")
+    print(f"  Boost RecPPO               : +{boost_rec:.1f}% toward healthy")
+    print(f"  RecPPO advantage           : {rec_adv:+.4f} Pearson r over baseline")
+    print(f"{'='*60}")
+    print(f"\nOutputs saved to {OUT_DIR}/")
+    for fname in [
+        "confusion_matrix_baseline.png",
+        "confusion_matrix_recppo.png",
+        "confusion_matrix_no_exo.png",
+        "comparison_metrics.png",
+        "pearsonr_by_severity.png",
+    ]:
+        print(f"  {fname}")
+
+
+if __name__ == "__main__":
+    main()
