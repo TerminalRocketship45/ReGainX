@@ -19,33 +19,13 @@ Usage:
 
 import os
 import numpy as np
-
-try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    _HAS_MATPLOTLIB = True
-except ImportError:
-    _HAS_MATPLOTLIB = False
-
-try:
-    from scipy.stats import pearsonr
-    _HAS_SCIPY = True
-except ImportError:
-    _HAS_SCIPY = False
-
-try:
-    import myosuite  # noqa: F401 — registers envs
-    from myosuite.utils import gym
-    _HAS_MYOSUITE = True
-except ImportError:
-    _HAS_MYOSUITE = False
-
-try:
-    from stable_baselines3 import PPO
-    _HAS_SB3 = True
-except ImportError:
-    _HAS_SB3 = False
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+import myosuite  # noqa: F401 — registers envs
+from myosuite.utils import gym
+from stable_baselines3 import PPO
 
 try:
     from sb3_contrib import RecurrentPPO
@@ -53,21 +33,14 @@ try:
 except ImportError:
     _HAS_RECURRENT_PPO = False
 
-try:
-    from envs.elbow_env import CombinedExoOnlyWrapper
-    from evaluation import plan_trials, severity_quartile_to_range, angle_bin_to_target
-    from utils import (
-        plot_confusion_matrix,
-        compute_severity,
-        get_angle_bin,
-        get_severity_quartile,
-    )
-except Exception:
-    # Fallback stubs for pure-numpy helpers used by testable functions,
-    # in case heavy deps (myosuite, skvideo, sb3) are absent.
-    def get_severity_quartile(severity: float, edges: np.ndarray) -> int:  # type: ignore[misc]
-        """0-indexed quartile; clips to valid range."""
-        return int(np.clip(np.searchsorted(edges[1:], severity), 0, len(edges) - 2))
+from envs.elbow_env import CombinedExoOnlyWrapper
+from evaluation import plan_trials, severity_quartile_to_range, angle_bin_to_target
+from utils import (
+    plot_confusion_matrix,
+    compute_severity,
+    get_angle_bin,
+    get_severity_quartile,
+)
 
 # ---------------------------------------------------------------------------
 # Hardcoded policy paths
