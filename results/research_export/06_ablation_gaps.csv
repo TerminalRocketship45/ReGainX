@@ -1,0 +1,53 @@
+ABLATION 1: BRADY TRAINING vs DEG-ONLY TRAINING (RecurrentPPO architecture, evaluated on brady+deg env)
+NOTE: RecPPO-brady generalises; RecPPO-deg-only fails catastrophically in Q3/Q4 severe.
+metric,RecPPO_brady,RecPPO_deg_only,gap (brady - deg-only)
+pearson_r_overall,0.627026,0.415115,+0.211911
+goal_rate_overall,0.910,0.685,+0.225
+pearson_r_Q1_mild,0.754037,0.701380,+0.052657
+pearson_r_Q2,0.647816,0.569265,+0.078551
+pearson_r_Q3,0.570920,0.463358,+0.107562
+pearson_r_Q4_severe,0.535332,-0.073542,+0.608874
+goal_rate_Q1_mild,1.000,1.000,+0.000
+goal_rate_Q2,0.994,0.890,+0.104
+goal_rate_Q3,0.894,0.511,+0.383
+goal_rate_Q4_severe,0.752,0.339,+0.413
+
+ABLATION 2: RECURRENT (LSTM) vs MLP (same training condition)
+metric,RecPPO_brady,MLP_brady,gap (RecPPO - MLP)
+pearson_r_overall,0.627026,0.574815,+0.052211
+goal_rate_overall,0.910,0.907,+0.003
+pearson_r_Q4_severe,0.535332,0.477212,+0.058120
+metric,RecPPO_deg,MLP_deg,gap (RecPPO - MLP)
+pearson_r_overall,0.415115,0.596734,-0.181619
+goal_rate_overall,0.685,0.879,-0.194
+pearson_r_Q4_severe,-0.073542,0.486099,-0.559641
+NOTE: RecPPO-deg-only underperforms MLP-deg-only when trained without bradykinesia, but RecPPO-brady outperforms MLP-brady. Brady training is necessary for RecPPO to realise its generalisation advantage.
+
+ABLATION 3: NOISE-TRAINED vs CLEAN RecPPO (robustness to EMG observation noise)
+sigma,RecPPO_clean_pearsonr,RecPPO_noisy_pearsonr,gap (noisy_trained - clean)
+0.00,0.631520,0.638119,+0.006599
+0.01,0.628031,0.635775,+0.007744
+0.05,0.626441,0.632297,+0.005856
+0.10,0.620740,0.629510,+0.008770
+sigma,RecPPO_clean_goalrate,RecPPO_noisy_goalrate,gap (noisy_trained - clean)
+0.00,0.906,0.923,+0.017
+0.01,0.897,0.895,-0.002
+0.05,0.903,0.897,-0.006
+0.10,0.899,0.897,-0.002
+pearson_r degradation clean (sigma 0->0.10): -0.010780
+pearson_r degradation noisy-trained (sigma 0->0.10): -0.008609
+degradation reduction from noise training: -0.002171
+
+ABLATION 4: EXO ASSISTANCE vs NO EXO (RecPPO-brady as exo policy)
+metric,RecPPO_brady_exo,no_exo,gap (exo - no_exo)
+pearson_r_overall,0.627026,0.272827,+0.354199
+goal_rate_overall,0.910,0.399,+0.511
+reward_overall,505.674,92.474,+413.200
+pearson_r_Q1_mild,0.754037,0.668494,+0.085543
+pearson_r_Q2,0.647816,0.549871,+0.097945
+pearson_r_Q3,0.570920,0.480901,+0.090019
+pearson_r_Q4_severe,0.535332,-0.607959,+1.143291
+goal_rate_Q1_mild,1.000,0.967,+0.033
+goal_rate_Q2,0.994,0.413,+0.581
+goal_rate_Q3,0.894,0.140,+0.754
+goal_rate_Q4_severe,0.752,0.076,+0.676

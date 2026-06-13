@@ -1,0 +1,9 @@
+policy,total_timesteps,n_log_entries,final_reward,max_reward,min_reward,mean_reward_all,std_reward_all,50pct_conv_ts,plateau_last10pct,notes
+policy_brady_deg_recurrent,1004800,3925,437.381,555.592,-109.486,423.728,97.636,55040,False,"RecurrentPPO brady+deg; intended 2M steps but only 1M logged (possible premature stop or log gap)"
+policy_deg_recurrent,1000000,1000,354.027,707.274,95.438,473.445,96.636,1000,False,"RecurrentPPO deg-only; high variance throughout -- does not converge cleanly"
+policy_brady_deg,1000448,1954,404.978,517.423,86.879,406.413,56.563,512,True,"MLP PPO brady+deg; plateau_last10pct=True means last 10% of training has near-flat reward"
+policy_deg,1000448,1954,657.438,676.655,323.518,606.395,46.303,512,True,"MLP PPO deg-only; highest final reward of all policies (deg env is easier)"
+policy_brady_deg_recurrent_noisy,2000000,2000,151.925,650.965,-106.289,184.869,151.224,4000,False,"RecurrentPPO brady+deg + EMG noise DR; combined log of 1.5M initial + 1.5M finetune; noisy finetune degraded reward (finetuning on harder noisy env)"
+policy_brady_deg_lstm,2000384,3907,137.214,233.066,41.611,127.092,26.906,512,False,"Extra LSTM run -- not in main 5-policy eval set"
+policy_deg_lstm,2000384,3907,468.014,576.926,353.318,458.095,34.714,512,True,"Extra LSTM deg-only run -- not in main 5-policy eval set"
+policy_brady_deg_lstm_extraobs,2000896,977,169.579,291.883,23.932,177.380,37.739,2048,False,"Extra LSTM with extra-obs -- not in main 5-policy eval set"

@@ -1,0 +1,121 @@
+ReGainX -- Key Numbers for Paper Writing
+==========================================
+Evaluation: 4,000 episodes per policy, 250 per cell (4 angle bins x 4 severity quartiles)
+Metric: Pearson r between impaired+exo joint angle trajectory and live healthy reference trajectory
+All exo policies evaluated on brady+deg env (bradykinesia=True, smart_reset=True)
+
+
+MAIN RESULTS TABLE (all 4,000 episodes)
+-----------------------------------------
+Policy                             Pearson r (mean+-std)   Goal Rate   Reward (mean+-std)
+healthy_policy (ceiling)           1.000 +- 0.000          100.0%      750.25 +- 24.43
+policy_brady_deg_recurrent (ours)  0.627 +- 0.219           91.0%      505.67 +- 283.67
+policy_brady_deg_recurrent_noisy   0.624 +- 0.253           90.6%      499.46 +- 284.78
+policy_deg (MLP deg-only)          0.597 +- 0.277           87.9%      339.42 +- 314.16
+policy_brady_deg (MLP brady+deg)   0.575 +- 0.232           90.7%      443.14 +- 271.65
+policy_deg_recurrent               0.415 +- 0.494           68.5%      250.06 +- 334.01
+no_exo (zero-torque baseline)      0.273 +- 0.608           39.9%       92.47 +- 370.89
+
+
+PER-SEVERITY-QUARTILE BREAKDOWN (RecPPO-brady = primary policy)
+-----------------------------------------------------------------
+Quartile   force_scale      act_slowdown    Description    Pearson r    Goal Rate
+Q1 mild    0.825-0.900      1.100-1.175     mild impair    0.754        100.0%
+Q2         0.750-0.825      1.175-1.250     moderate       0.648         99.4%
+Q3         0.675-0.750      1.250-1.325     severe         0.571         89.4%
+Q4 severe  0.600-0.675      1.325-1.400     extreme        0.535         75.2%
+
+No-exo comparison at Q4 severe: Pearson r = -0.608 (anti-correlated trajectory)
+Exo assistance gain at Q4 severe: 0.535 - (-0.608) = +1.143 Pearson r units
+
+
+ABLATION RESULTS
+-----------------
+A1. Brady training vs deg-only (RecurrentPPO):
+    Overall: +0.212 Pearson r  (+51.0% relative improvement)
+    Q4 severe: +0.609 (+608 Pearson r points, or from catastrophic failure to functional)
+    RecPPO-deg-only Q4 severe = -0.074 (mean negative correlation -- fails catastrophically)
+
+A2. Recurrent (LSTM) vs MLP (brady+deg condition):
+    RecPPO-brady vs MLP-brady: +0.052 Pearson r  (+9.1% relative)
+    Q4 severe: +0.058 Pearson r for recurrent
+    NOTE: RecPPO-deg-only underperforms MLP-deg-only (-0.182), showing recurrence only
+    helps when trained with brady domain randomisation.
+
+A3. Noise-trained vs clean RecPPO (robustness):
+    At sigma=0.10: noisy-trained = 0.6295, clean = 0.6207, gap = +0.0088
+    Degradation from sigma=0 to sigma=0.10:
+      Clean policy: -0.0108 (1.71% relative drop)
+      Noisy-trained: -0.0086 (1.35% relative drop)
+    Noise training reduces degradation by ~0.0022 Pearson r (20% reduction in degradation)
+
+A4. Exo vs no-exo (RecPPO-brady):
+    Overall: +0.354 Pearson r  (+129.8% relative)
+    Goal rate: +51.1 percentage points (39.9% -> 91.0%)
+    Reward: +413.2 cumulative reward
+    Q4 severe: from -0.608 (failure) to 0.535 (functional)
+
+
+NOISE ABLATION TABLE (1,000 episodes per sigma level)
+-------------------------------------------------------
+sigma   RecPPO_clean   RecPPO_noisy_trained   gap
+0.00    0.6315         0.6381                 +0.0066
+0.01    0.6280         0.6358                 +0.0077
+0.05    0.6264         0.6323                 +0.0059
+0.10    0.6207         0.6295                 +0.0088
+
+
+PER-ANGLE-BIN BREAKDOWN (RecPPO-brady)
+----------------------------------------
+Angle bin (rad)  Pearson r   Goal Rate   Notes
+0.5-1.0          0.404       100.0%      Small range -- easier, but lower r (short trajectories)
+1.0-1.5          0.698        99.5%      Mid range
+1.5-2.0          0.706        87.2%      Larger range -- harder to achieve goal
+2.0-2.5          0.700        77.3%      Largest range -- lowest goal rate
+
+
+TRAINING CURVE STATS
+---------------------
+Policy                            Total TS  Final Rwd  Max Rwd   Converged?
+policy_brady_deg_recurrent        1,004,800  437.4      555.6     No (plateau_last10pct=False)
+policy_deg_recurrent              1,000,000  354.0      707.3     No (high variance)
+policy_brady_deg                  1,000,448  405.0      517.4     Yes (plateau_last10pct=True)
+policy_deg                        1,000,448  657.4      676.7     Yes
+policy_brady_deg_recurrent_noisy  2,000,000  151.9      651.0     No (finetune degraded reward)
+
+NOTE on noisy policy: Two-phase training. Phase 1 (1.5M steps) reached ~438.7 reward.
+Phase 2 finetune (1.5M steps) degraded to 151.9 -- the noise domain randomisation made
+the finetuning task harder. Despite low training reward, eval Pearson r is 0.624 (robust).
+
+
+PAPER-READY SUMMARY SENTENCES
+-------------------------------
+- "Our RecurrentPPO controller trained with bradykinesia domain randomisation achieves
+  a mean Pearson r of 0.627 (+-0.219) across 4,000 evaluation episodes stratified over
+  4 severity quartiles and 4 joint-angle target bins."
+
+- "The exoskeleton controller improves trajectory correlation from r=-0.608 (no exo,
+  Q4 severe) to r=0.535 (+1.143 absolute), and raises goal-achievement from 7.6% to
+  75.2% in the most severely impaired condition."
+
+- "Training without bradykinesia domain randomisation (deg-only RecurrentPPO) yields
+  r=-0.074 in Q4 severe, demonstrating catastrophic OOD failure without brady training."
+
+- "Noise-augmented training reduces trajectory-correlation degradation from 1.71% to
+  1.35% when sensor noise increases from sigma=0 to sigma=0.10."
+
+- "The RecurrentPPO architecture outperforms the MLP baseline by 0.052 Pearson r
+  (0.627 vs 0.575) when both are trained with bradykinesia randomisation, with the gap
+  widening to 0.058 in the most severe quartile."
+
+
+WHAT THESE NUMBERS CANNOT SUPPORT
+------------------------------------
+The following claims are NOT verifiable from this codebase and should NOT appear
+in the paper without additional work:
+- 97.86% restoration accuracy (metric not computed here)
+- 37.6% higher training performance vs baseline (no common baseline comparison)
+- 61.4% TD error reduction (TD error not logged)
+- ~30ms end-to-end latency (not measured)
+- Smoothness reward (not in reward function -- MyoSuite uses pose-error reward only)
+- Energy efficiency / overshoot reduction (not computed)
