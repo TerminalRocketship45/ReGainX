@@ -1,0 +1,9 @@
+policy,total_timesteps,n_log_entries,final_reward,max_reward,min_reward,mean_reward_all,std_reward_all,50pct_conv_ts,plateau_last10pct
+policy_brady_deg_recurrent,1004800,3925,437.381,555.5917,-109.4861,423.7278,97.6362,55040,False
+policy_deg_recurrent,1000000,1000,354.027,707.2743,95.4379,473.4449,96.6364,1000,False
+policy_brady_deg,1000448,1954,404.9775,517.4225,86.8789,406.4134,56.5626,512,True
+policy_deg,1000448,1954,657.4384,676.6545,323.518,606.3945,46.3032,512,True
+policy_brady_deg_recurrent_noisy,2000000,2000,151.9248,650.9647,-106.2893,184.8686,151.2235,4000,False
+policy_brady_deg_lstm,2000384,3907,137.2145,233.0657,41.6107,127.0917,26.9056,512,False
+policy_deg_lstm,2000384,3907,468.0135,576.9255,353.3179,458.0946,34.7136,512,True
+policy_brady_deg_lstm_extraobs,2000896,977,169.5788,291.8825,23.9317,177.3801,37.7392,2048,False

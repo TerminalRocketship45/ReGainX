@@ -1,0 +1,5 @@
+severity_quartile,pearson_r_mean,pearson_r_std,pearson_r_min,pearson_r_max,pearson_r_p5,pearson_r_p25,pearson_r_p50,pearson_r_p75,pearson_r_p95,pearson_r_p99,pearson_r_n,goal_rate,reward_mean,reward_std
+Q1 mild,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1000,1.0,750.375793,24.53241
+Q2,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1000,1.0,750.424336,24.039211
+Q3,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1000,1.0,750.066578,24.494032
+Q4 severe,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1000,1.0,750.139446,24.633357
