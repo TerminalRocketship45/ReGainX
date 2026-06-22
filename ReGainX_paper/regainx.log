@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.6.21)  21 JUN 2026 20:49
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.6.21)  21 JUN 2026 23:07
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -470,24 +470,24 @@ File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 ) (regainx.aux)
 \openout1 = `regainx.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 44.
-LaTeX Font Info:    ... okay on input line 44.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 46.
+LaTeX Font Info:    ... okay on input line 46.
 
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
@@ -555,18 +555,18 @@ LaTeX Font Info:    ... okay on input line 44.
 * \@reversemarginfalse
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
-Package hyperref Info: Link coloring OFF on input line 44.
+Package hyperref Info: Link coloring OFF on input line 46.
 (regainx.out) (regainx.out)
 \@outlinefile=\write3
 \openout3 = `regainx.out'.
 
-LaTeX Info: Redefining \microtypecontext on input line 44.
-Package microtype Info: Applying patch `item' on input line 44.
-Package microtype Info: Applying patch `toc' on input line 44.
-Package microtype Info: Applying patch `eqnum' on input line 44.
-Package microtype Info: Applying patch `footnote' on input line 44.
-Package microtype Info: Applying patch `verbatim' on input line 44.
-LaTeX Info: Redefining \microtypesetup on input line 44.
+LaTeX Info: Redefining \microtypecontext on input line 46.
+Package microtype Info: Applying patch `item' on input line 46.
+Package microtype Info: Applying patch `toc' on input line 46.
+Package microtype Info: Applying patch `eqnum' on input line 46.
+Package microtype Info: Applying patch `footnote' on input line 46.
+Package microtype Info: Applying patch `verbatim' on input line 46.
+LaTeX Info: Redefining \microtypesetup on input line 46.
 Package microtype Info: Generating PDF output.
 Package microtype Info: Character protrusion enabled (level 2).
 Package microtype Info: Using default protrusion set `alltext'.
@@ -614,7 +614,7 @@ Package caption Info: End \AtBeginDocument code.
 File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
 (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msa on input line 46.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 48.
 
 
 (C:\Users\rohan\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
@@ -623,7 +623,7 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (C:\Users\rohan\AppData\Local\Programs\MiKTeX\tex/latex/microtype\mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 46.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 48.
 
 
 (C:\Users\rohan\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
@@ -650,10 +650,10 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [2]
-<fig2_pd_modeling.pdf, id=231, 459.1372pt x 237.86855pt>
+<fig2_pd_modeling.pdf, id=232, 459.1372pt x 237.86855pt>
 File: fig2_pd_modeling.pdf Graphic file (type pdf)
 <use fig2_pd_modeling.pdf>
-Package pdftex.def Info: fig2_pd_modeling.pdf  used on input line 277.
+Package pdftex.def Info: fig2_pd_modeling.pdf  used on input line 279.
 (pdftex.def)             Requested size: 469.75499pt x 243.37402pt.
 
 
@@ -664,13 +664,13 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [3]
-<fig1_pipeline.pdf, id=264, 516.3988pt x 280.10973pt>
+<fig1_pipeline.pdf, id=265, 516.3988pt x 280.10973pt>
 File: fig1_pipeline.pdf Graphic file (type pdf)
 <use fig1_pipeline.pdf>
-Package pdftex.def Info: fig1_pipeline.pdf  used on input line 324.
+Package pdftex.def Info: fig1_pipeline.pdf  used on input line 326.
 (pdftex.def)             Requested size: 469.75499pt x 254.81903pt.
 
-Underfull \hbox (badness 10000) in paragraph at lines 338--345
+Underfull \hbox (badness 10000) in paragraph at lines 340--347
  []\T1/ptm/b/n/10 (+20) Phase 1 --- Healthy Con-troller Train-ing.[] \T1/ptm/m/
 n/10 (+20) A mus-cu-loskele-tal el-bow con-troller is trained on
  []
@@ -683,10 +683,10 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [4 <./fig2_pd_modeling.pdf>]
-<fig3_training_curves.pdf, id=314, 460.13719pt x 279.54312pt>
+<fig3_training_curves.pdf, id=315, 460.13719pt x 279.54312pt>
 File: fig3_training_curves.pdf Graphic file (type pdf)
 <use fig3_training_curves.pdf>
-Package pdftex.def Info: fig3_training_curves.pdf  used on input line 406.
+Package pdftex.def Info: fig3_training_curves.pdf  used on input line 408.
 (pdftex.def)             Requested size: 469.75499pt x 285.39038pt.
 
 
@@ -708,10 +708,10 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [6 <./fig3_training_curves.pdf>]
-<fig8_latency.pdf, id=357, 460.49855pt x 293.81645pt>
+<fig8_latency.pdf, id=358, 460.49855pt x 293.81645pt>
 File: fig8_latency.pdf Graphic file (type pdf)
 <use fig8_latency.pdf>
-Package pdftex.def Info: fig8_latency.pdf  used on input line 462.
+Package pdftex.def Info: fig8_latency.pdf  used on input line 464.
 (pdftex.def)             Requested size: 469.75499pt x 299.73811pt.
 
 
@@ -722,15 +722,15 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [7 <./fig8_latency.pdf>]
-<fig5_heatmap.pdf, id=381, 520.91708pt x 258.65509pt>
+<fig5_heatmap.pdf, id=382, 520.91708pt x 258.65509pt>
 File: fig5_heatmap.pdf Graphic file (type pdf)
 <use fig5_heatmap.pdf>
-Package pdftex.def Info: fig5_heatmap.pdf  used on input line 546.
+Package pdftex.def Info: fig5_heatmap.pdf  used on input line 548.
 (pdftex.def)             Requested size: 469.75499pt x 233.25313pt.
-<fig9_ablation1.pdf, id=383, 459.83795pt x 293.96324pt>
+<fig9_ablation1.pdf, id=384, 459.83795pt x 293.96324pt>
 File: fig9_ablation1.pdf Graphic file (type pdf)
 <use fig9_ablation1.pdf>
-Package pdftex.def Info: fig9_ablation1.pdf  used on input line 573.
+Package pdftex.def Info: fig9_ablation1.pdf  used on input line 575.
 (pdftex.def)             Requested size: 469.75499pt x 300.31848pt.
 
 
@@ -741,10 +741,10 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [8 <./fig5_heatmap.pdf>]
-<fig4_ablation_severity.pdf, id=406, 459.83795pt x 293.96324pt>
+<fig4_ablation_severity.pdf, id=407, 459.83795pt x 293.96324pt>
 File: fig4_ablation_severity.pdf Graphic file (type pdf)
 <use fig4_ablation_severity.pdf>
-Package pdftex.def Info: fig4_ablation_severity.pdf  used on input line 614.
+Package pdftex.def Info: fig4_ablation_severity.pdf  used on input line 616.
 (pdftex.def)             Requested size: 469.75499pt x 300.31848pt.
 
 
@@ -755,15 +755,15 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [9 <./fig9_ablation1.pdf>]
-<fig6_radian_performance.pdf, id=424, 460.09892pt x 293.81645pt>
+<fig6_radian_performance.pdf, id=425, 460.09892pt x 293.81645pt>
 File: fig6_radian_performance.pdf Graphic file (type pdf)
 <use fig6_radian_performance.pdf>
-Package pdftex.def Info: fig6_radian_performance.pdf  used on input line 650.
+Package pdftex.def Info: fig6_radian_performance.pdf  used on input line 652.
 (pdftex.def)             Requested size: 469.75499pt x 299.9847pt.
-<fig7_noise_robustness.pdf, id=428, 460.09892pt x 278.80473pt>
+<fig7_noise_robustness.pdf, id=429, 460.09892pt x 278.80473pt>
 File: fig7_noise_robustness.pdf Graphic file (type pdf)
 <use fig7_noise_robustness.pdf>
-Package pdftex.def Info: fig7_noise_robustness.pdf  used on input line 679.
+Package pdftex.def Info: fig7_noise_robustness.pdf  used on input line 681.
 (pdftex.def)             Requested size: 399.2946pt x 241.9583pt.
 
 
@@ -790,7 +790,7 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [12]
-Underfull \hbox (badness 2865) in paragraph at lines 871--875
+Underfull \hbox (badness 2865) in paragraph at lines 873--877
 \T1/ptm/m/it/10 (+20) ro-science\T1/ptm/m/n/10 (+20) . []$\T1/cmtt/m/n/10 https
  : / / www . frontiersin . org / journals / aging-[]neuroscience / articles / 1
 0 . 3389 / fnagi .
@@ -804,7 +804,7 @@ Package fancyhdr Warning: \headheight is too small (14.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-8.37994pt}.
 
 [13]
-Underfull \hbox (badness 2318) in paragraph at lines 974--977
+Underfull \hbox (badness 2318) in paragraph at lines 976--979
 []\T1/ptm/m/n/10 (+20) PMC (2025). LSTM-enabled EMG-controlled up-per arm ex-os
 kele-ton. []$\T1/cmtt/m/n/10 https : / / pmc . ncbi . nlm . nih . gov /
  []
@@ -827,7 +827,7 @@ Package rerunfilecheck Info: File `regainx.out' has not changed.
 Here is how much of TeX's memory you used:
  17207 strings out of 467871
  288744 string characters out of 5418376
- 744733 words of memory out of 5000000
+ 744836 words of memory out of 5000000
  45510 multiletter control sequences out of 15000+600000
  696758 words of font info for 253 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
@@ -849,9 +849,9 @@ m/cmsy7.pfb><C:/Users/rohan/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times
 /utmbi8a.pfb><C:/Users/rohan/AppData/Local/Programs/MiKTeX/fonts/type1/urw/time
 s/utmr8a.pfb><C:/Users/rohan/AppData/Local/Programs/MiKTeX/fonts/type1/urw/time
 s/utmri8a.pfb>
-Output written on regainx.pdf (14 pages, 1647180 bytes).
+Output written on regainx.pdf (14 pages, 1648064 bytes).
 PDF statistics:
- 737 PDF objects out of 1000 (max. 8388607)
+ 740 PDF objects out of 1000 (max. 8388607)
  102 named destinations out of 1000 (max. 500000)
  63246 words of extra memory for PDF output out of 74296 (max. 10000000)
 
