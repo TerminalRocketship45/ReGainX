@@ -1,0 +1,1054 @@
+\documentclass{article}
+\usepackage{arxiv}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{natbib}
+\usepackage{doi}
+\usepackage{cleveref}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+
+\graphicspath{{figures/}}
+
+% Allow floats to share pages with text more readily (reduces large gaps).
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.7}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+
+\title{ReGainX: Adaptive Reinforcement Learning Exoskeletons\\
+for Real-Time Mitigation of Parkinson's Motor Impairments}
+
+\author{%
+  Rohan Bankapur \\
+  Independent Researcher \\
+  \texttt{Rohannb02@gmail.com}
+}
+
+\begin{document}
+\maketitle
+
+%------------------------------------------------------------------
+\begin{abstract}
+Parkinson's disease (PD) limits daily elbow movement in over 10 million
+people, causing progressive muscular degeneration and idiosyncratic
+bradykinesia. Existing exoskeletons fail to generalise to Parkinson's
+patients due to a lack of representative data, hardware limitations, and
+calibration difficulty. ReGainX introduces a three-stage multi-agent
+reinforcement learning framework that creates diverse Parkinson's digital
+twins using Proximal Policy Optimisation (PPO). A custom RecurrentPPO
+algorithm with an LSTM policy fuses EMG and IMU data for real-time,
+adaptive torque control. The trained policy achieves a mean trajectory
+match of $r{=}0.494$ and a goal achievement rate of $88.8\%$ across
+4\,000 stratified evaluation episodes spanning the full PD severity
+spectrum, without per-session recalibration. An ablation study demonstrates that the combined-trained policy achieves
+a $35.7\%$ higher trajectory match than exoskeletons trained on muscle
+weakness alone, sustaining a mean reward of $382.30$ at the most severe
+impairment level versus $9.26$ for the degeneration-only
+policy---validating combined impairment modelling as a necessary
+condition for cross-patient generalisability.
+\end{abstract}
+
+\keywords{Parkinson's disease \and exoskeleton \and reinforcement learning
+\and musculoskeletal simulation \and bradykinesia \and multi-agent systems}
+
+%==================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Parkinson's disease (PD) affects over 10 million people globally, costing
+\$82.2 billion annually in the U.S.~\citep{chaudhuri2025, parkinson2026}.
+Two compounding motor impairments progressively restrict daily elbow
+movement: \emph{muscular degeneration}, the progressive weakening of
+muscle force by sarcopenia and fatigue, and \emph{bradykinesia}, the
+fluctuating slowing and delay of voluntary movement. Critically, PD motor
+severity does not remain fixed---patients cycle between ON and OFF states
+within a single day as medication efficacy fluctuates, producing
+unpredictable swings in impairment magnitude~\citep{ramesh2022}. Despite
+this, even mildly affected patients show a $22\%$ force production deficit
+at the elbow~\citep{ingram2021}. Existing wearable technology fails PD
+patients in three ways: per-session manual calibration, unreliable noisy
+sensing, and a lack of multimodal PD-specific datasets needed to train
+generalisable devices~\citep{researchgate2023, arxiv2025}. Despite a
+$90\%$ interest in medical wearables, only $8\%$ of PD patients adopt
+them~\citep{hirczy2024}.
+
+Elbow exoskeletons have evolved significantly since early devices relied
+on rigid trajectory control, where the controller moved the joint through
+a fixed path regardless of user effort---a system that becomes inflexible
+when patient states constantly change~\citep{gasperina2021, myoelectric2022}.
+As reviewed by \citet{supriyono2025}, the elbow joint is the most targeted
+joint in upper-limb exoskeleton design, yet control strategies have
+historically required patient-specific and session-specific parameter
+tuning that cannot account for short- and long-term severity fluctuations.
+The field has progressively shifted toward intent-detection using
+myoelectric signals; EMG captures continuous, multi-channel neural drive
+data reflecting both movement intention and muscle activation state, but
+surface EMG remains highly susceptible to noise and session-to-session
+variability---barriers compounded in PD patients whose neural drive
+signals carry abnormal bursting patterns from basal ganglia
+dysfunction~\citep{supriyono2025, mdpi2025}.
+
+Deep reinforcement learning (DRL) addresses this directly: rather than
+calibrating to a fixed patient profile, a DRL policy trained across a
+diverse distribution of patient conditions learns to generalise without
+manual re-tuning between sessions. \citet{luo2024} validated this
+principle when training a hip exoskeleton entirely in simulation and
+deploying it to real hardware without a single human experiment, achieving
+a $24.3\%$ reduction in metabolic walking cost. \citet{endrei2025} applied
+DRL specifically to PD, demonstrating tremor suppression at the elbow and
+shoulder across dynamic movements. Despite this, no prior work has trained
+an autonomous elbow exoskeleton controller for muscular degeneration and
+bradykinesia---the defined characteristics of PD motor impairments. The
+absence of real multimodal PD patient datasets makes simulation-based
+training the only viable path, and no existing framework has constructed a
+proper environment to do this for exoskeletons.
+
+ReGainX addresses this with a three-phase multi-agent DRL framework.
+Using MyoSuite's high-fidelity musculoskeletal simulator~\citep{caggiano2022},
+we first train a healthy digital twin of the human elbow with DRL, then
+simultaneously apply randomised severities of muscular degeneration and
+bradykinesia to generate a distribution of PD digital twins, and finally
+train a DRL exoskeleton agent against the frozen PD controller across
+approximately 20\,000 distinct PD patient profiles. The objective of this
+paper is to assess whether deep reinforcement learning can produce an
+autonomous elbow exoskeleton controller that provides real-time, adaptive
+mitigation of motor impairments at the elbow across diverse PD patients.
+
+%==================================================================
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Control Strategies for Upper-Limb Exoskeletons}
+
+Elbow exoskeletons have evolved across three distinct control generations.
+First-generation devices applied forces independently of voluntary human
+activity---an approach fundamentally unsuited to patients with non-constant
+impairment levels~\citep{gasperina2021}. The logical successor, intent-detection
+through surface EMG, allows devices to respond to neural drive signals.
+\citet{supriyono2025} confirm that EMG and IMU sensing now dominate the
+field precisely because of their low cost and high information density.
+However, the same review identifies sEMG noise, electrode placement shifts,
+and IMU drift as the primary barriers preventing reliable cross-patient
+generalisation~\citep{supriyono2025}.
+
+\subsection{Exoskeleton Research in Parkinson's Disease}
+
+Despite the scale of PD as a motor disorder, published exoskeleton work
+targeting PD patients remains strikingly sparse. \citet{fortunati2024}
+conducted a systematic review of powered lower-limb exoskeletons in PD
+gait training and found only five original studies involving 46 patients
+total---all stable on medication, all at Hoehn and Yahr stages below 3.
+None used adaptive or learning-based control. Furthermore, all five
+studies addressed gait, with zero coverage of upper limb function. The
+elbow---a major site of PD motor decline---has not been the target of
+any published PD-specific exoskeleton study to date, and there is
+currently no standardised assessment or targeted intervention for upper
+limb function in PD rehabilitation~\citep{capato2023}.
+
+\subsection{Deep Reinforcement Learning for Exoskeleton Control}
+
+The recognised limitation of static, patient-specific controllers has
+motivated a shift toward DRL. \citet{luo2023} presented the first DRL
+controller for a lower-limb rehabilitation exoskeleton trained on a
+coupled musculoskeletal model, using domain randomisation of muscle
+strength across quadriplegic, muscle-weakness, and hemiplegic conditions.
+\citet{luo2024} extended this to experiment-free deployment.
+\citet{endrei2025} applied DRL specifically to PD tremor suppression.
+However, none of these works model the simultaneous interaction of
+muscular degeneration and bradykinesia, nor construct a multi-agent
+environment where a simulated patient and an exoskeleton agent
+co-exist during training.
+
+\subsection{Musculoskeletal Simulation as a Training Foundation}
+
+The absence of PD datasets makes high-fidelity simulation the most viable
+training framework. \citet{caggiano2022} introduced MyoSuite, a
+contact-rich musculoskeletal simulation suite built on MuJoCo that
+supports the modelling of physiological impairments---including fatigue
+and sarcopenia---as native non-stationarities. \citet{wang2022} extended
+this with MyoSim, operating over two orders of magnitude faster than
+prior tools, making large episode counts computationally feasible.
+No prior work has applied these capabilities to train a PD-specific
+elbow exoskeleton controller under combined muscular degeneration and
+bradykinesia.
+
+%==================================================================
+\section{Parkinson's Disease Simulation}
+\label{sec:pdsim}
+
+\subsection{Musculoskeletal Model and Joint Scope}
+
+ReGainX's digital twins are built within MyoSuite's \texttt{myoElbow}
+environment, a 6-muscle elbow model embedded in MuJoCo's physics engine,
+comprising three primary flexors---BIClong, BICshort, and BRA---and three
+primary extensors---TRIlong, TRIlat, and TRImed~\citep{caggiano2022}.
+Muscle force generation follows Hill-type muscle-tendon dynamics, in which
+each muscle's contractile force depends on its activation level, fiber
+operating length, and contraction velocity~\citep{zajac1989}. The
+resulting joint torque is expressed through the rigid-body equation of
+motion:
+\begin{equation}
+  \boldsymbol{\tau} = M(\mathbf{q})\ddot{\mathbf{q}}
+    + C(\mathbf{q}, \dot{\mathbf{q}})\dot{\mathbf{q}}
+    + G(\mathbf{q}),
+\end{equation}
+where $M(\mathbf{q})$ is the inertia matrix, $C(\mathbf{q},\dot{\mathbf{q}})$
+captures Coriolis and centrifugal forces, and $G(\mathbf{q})$ is the
+gravitational torque vector. The simulated joint operates over $0$ to
+$2.4\,\mathrm{rad}$ ($\approx 138^\circ$), consistent with the clinically
+established active range of motion~\citep{cools2017, morrey1981}. The
+exoskeleton provides a normalised torque $\tau_\text{exo} \in [0,1]$,
+representing a fraction of the biological joint torque capacity
+following~\citet{durandau2019}.
+
+The elbow is targeted for two clinical reasons: elbow extensors show
+the largest force production deficit ($22\%$) even in mildly affected,
+medicated PD patients~\citep{ingram2021}, and the hand-to-mouth
+movement---essential for eating and drinking---is significantly altered in
+PD through reduced elbow flexion velocity and range of motion,
+correlating with UPDRS-III scores~\citep{caligiuri2018}.
+
+\subsection{Muscular Degeneration Model}
+
+Muscular degeneration in PD arises from sarcopenia (OR $3.98$ vs.\
+controls, prevalence $10.9$--$31.4\%$) and chronic muscle fatigue
+(pooled prevalence $\approx 50\%$)~\citep{hart2023, ponsoni2023, siciliano2024}.
+ReGainX adopts the combined degeneration equation from the MyoSuite
+framework~\citep{caggiano2022}:
+\begin{equation}
+  F_\text{deg} = \alpha_1 \cdot F_\text{max}
+    \cdot e^{-(\alpha_2 + \beta t)}
+    = m_\text{loss} \cdot m_\text{fati},
+\end{equation}
+where $\alpha_1 \in [0,1]$ is the sarcopenic mass-loss factor,
+$\alpha_2 \in [0,1]$ is the fatigue onset parameter (weighted toward
+higher values reflecting patients who require assistance), and $\beta$
+is held at MyoSuite's default value from the Cheema et al.\ (2020)
+three-compartment fatigue model. All parameters are independently
+randomised per episode.
+
+\subsection{Bradykinesia Model}
+
+Bradykinesia produces two quantifiable deficits: a delay in movement
+initiation and a reduction in movement speed and amplitude. Off-medication
+PD patients move $41\%$ slower than controls with $29\%$ shorter
+displacement~\citep{agostino2015}. ReGainX models bradykinesia as:
+\begin{equation}
+  N_\text{brady} = x(i - \Delta i) \cdot \alpha,
+\end{equation}
+where $\Delta i \in [1.1, 1.4]$ is a temporal scaling factor (an action
+taking $1.0\,\mathrm{s}$ healthy takes $1.1$--$1.4\,\mathrm{s}$ in the
+PD patient) and $\alpha \in [0.3, 1.0]$ scales the movement amplitude,
+reproducing the $29$--$41\%$ reduction documented
+clinically~\citep{agostino2015, raethjen2018}.
+
+\subsection{Combined PD Severity and Episode Diversity}
+
+Both impairments are applied simultaneously across all training episodes:
+the patient model has degraded peak force capacity \emph{and} delayed,
+attenuated movement. The composite PD severity of each episode is
+parameterised across both impairment scales, with start angle and target
+goal angle randomised uniformly over $[0, 2.4]$ rad. The policy
+encounters no two identical patient profiles during training and must
+generalise across the full clinical spectrum.
+
+Figure~\ref{fig:pd_modeling} illustrates the effect of each impairment
+on muscle activation and joint trajectory.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig2_pd_modeling.pdf}
+  \caption{Parkinsonian motor-deficit model. \textbf{Left:} muscle
+    activation is reduced by degeneration and further delayed under
+    combined PD impairment. \textbf{Right:} joint-angle trajectories
+    show reduced reach and delayed onset; the vertical dashed line marks
+    the akinetic delay $\Delta i$.}
+  \label{fig:pd_modeling}
+\end{figure}
+
+%==================================================================
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Safety Design}
+\label{sec:safety}
+
+The MyoSuite exoskeleton model incorporates an upper-arm attachment
+($0.101\,\mathrm{kg}$) and a forearm attachment ($0.111\,\mathrm{kg}$),
+for a combined simulated weight of $0.212\,\mathrm{kg}$---within the
+$0.2$--$0.5\,\mathrm{kg}$ range identified as feasible for patients with
+reduced arm strength~\citep{pmc11852623, pmc12451468}. A healthy elbow
+controller evaluated with the exoskeleton mass attached achieved perfect
+trajectory match, confirming the modelled weight does not interfere with
+voluntary movement.
+
+Two explicit safety constraints are enforced by the environment. First,
+the joint angle is hard-capped at $2.4\,\mathrm{rad}$, the anatomically
+established upper limit of active elbow flexion~\citep{cools2017}.
+Second, exoskeleton torque is normalised to $[0,1]$ as a fraction of
+biological joint torque; the exoskeleton cannot deliver more torque than
+the joint's own biological capacity.
+
+\subsection{Multi-Agent Training Framework}
+\label{sec:marl}
+
+ReGainX implements a three-phase pipeline (Figure~\ref{fig:pipeline}),
+sequentially developing a healthy musculoskeletal controller, a simulated
+PD patient, and an exoskeleton agent. The patient controller is frozen
+before exoskeleton training begins to prevent co-adaptation: if both
+agents trained simultaneously, the patient model could learn to move in
+unnatural patterns that inflate the reward---a failure that would not
+transfer to real patients whose movement patterns are not shaped by the
+device. ReGainX is designed so the exoskeleton adapts to the patient,
+not vice versa.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig1_pipeline.pdf}
+  \caption{Three-phase ReGainX training pipeline, shown with MuJoCo/MyoSuite
+    renders at a fixed $2.0\,\mathrm{rad}$ target. \textbf{Phase 1:} a PPO
+    healthy controller (trained) drives the six elbow muscles and reaches the
+    target. \textbf{Phase 2:} the same controller is frozen and run under
+    combined bradykinesia and muscular degeneration, stalling well short of
+    the target. \textbf{Phase 3:} a RecurrentPPO exoskeleton agent (trained)
+    supplies assistive torque to the frozen patient, restoring movement to the
+    target. The exoskeleton is trained under domain randomisation over
+    $\approx$20\,000 PD profiles.}
+  \label{fig:pipeline}
+\end{figure}
+
+\paragraph{Phase 1 --- Healthy Controller Training.}
+A musculoskeletal elbow controller is trained on
+\texttt{myoElbowPose1D6MRandom-v0}---a healthy 6-muscle elbow model---via
+PPO~\citep{sb3} for 250\,000 timesteps, with policy updates every
+2\,048 steps. The action space is the 6-dimensional neural drive signal.
+The reward is given each timestep, scaled to how much closer the joint
+moved toward the target angle. Both starting and target angles are drawn
+uniformly from $[0, 2.4]\,\mathrm{rad}$ per episode.
+
+\paragraph{Phase 2 --- Parkinson's Patient Controller Setup.}
+The healthy controller is transferred unchanged to the PD-impaired
+environment (Section~\ref{sec:pdsim}). Joint position errors increase,
+targets are missed, and reduced peak force combined with slowed activation
+dynamics creates a realistic impaired profile. Randomising impairment
+parameters alongside starting and target angles per episode generates
+$\approx$20\,000 distinct patient profiles---serving as a
+simulation-based alternative to real PD datasets, which are
+scarce~\citep{researchgate2023, arxiv2025}. The controller is then frozen,
+representing a PD patient still attempting voluntary movement but unable
+to complete it.
+
+\paragraph{Phase 3 --- Exoskeleton Agent Training.}
+With the PD controller frozen, the exoskeleton agent is initialised and
+trained for 2\,000\,000 timesteps using RecurrentPPO. Both agents act
+within the same environment each timestep. The exoskeleton agent receives
+an 8-dimensional observation and outputs a single normalised torque
+$\tau_\text{exo} \in [0,1]$.
+
+The observation space satisfies the Markov property: it consists of the
+6 current muscle activations from the patient controller, the current
+joint angle $q$, and the current joint velocity $\dot{q}$. Velocity
+encodes the rate of joint state change without requiring access to prior
+states. The target angle and starting angle are excluded: it is not
+feasible to input precise joint angles every millisecond in deployment,
+and it is impossible to extract the patient's intended target from neural
+signals. Patient diversity is achieved through continuous domain
+randomisation of \texttt{force\_scale}, \texttt{activation\_slowdown},
+and muscle fatigue fraction at each episode.
+
+\subsection{Policy Architecture}
+\label{sec:policy}
+
+The exoskeleton policy is a RecurrentPPO~\citep{sb3contrib}, which
+augments the standard PPO actor-critic framework with an LSTM layer
+between the observation input and the policy head. At each timestep,
+the LSTM maintains a cell state and hidden state carried forward across
+timesteps within an episode. At episode boundaries both states are
+reset, ensuring the policy re-initialises its temporal context for each
+new patient profile.
+
+This formulates the control problem as a \emph{Partially Observable
+Markov Decision Process} (POMDP): the observation deliberately excludes
+the user's goal angle. The LSTM builds up evidence about the patient's
+activation pattern over a movement, allowing the policy to infer the
+direction of intended movement and the degree to which impairment will
+prevent its completion. A feedforward policy acting only on the current
+observation cannot distinguish a progressively fatiguing patient from one
+at a stable impairment level.
+
+A shorter rollout of $n_\text{steps}{=}256$ was used (vs.\ 2\,048 in
+Phase 1) to produce more frequent LSTM state resets during training,
+amplifying the episode boundary signal and bounding truncated
+backpropagation through time to avoid vanishing gradients.
+
+Training reward curves for all policies are shown in
+Figure~\ref{fig:training_curves}.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig3_training_curves.pdf}
+  \caption{Training reward curves (rolling mean, window~$=20$, with
+    $\pm1\sigma$ band). The RecurrentPPO brady+deg policy converges
+    substantially more slowly than MLP policies, consistent with the
+    higher sample complexity of learning a useful LSTM hidden state.}
+  \label{fig:training_curves}
+\end{figure}
+
+\subsection{Hyperparameter Optimisation}
+\label{sec:hparam}
+
+Hyperparameters were selected through Bayesian optimisation using
+Optuna~\citep{akiba2019} with a Tree-structured Parzen Estimator (TPE)
+sampler and a MedianPruner (5 startup trials, 2 warmup steps). Two
+studies were run---one for the MLP baseline and one for RecurrentPPO---each
+comprising 20 trials of 75\,000 timesteps with a deterministic 10-episode
+evaluation to score each trial. The best configurations and study
+statistics are summarised in Table~\ref{tab:bayes}.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Bayesian optimisation results.}
+  \label{tab:bayes}
+  \begin{tabular}{lcc}
+    \toprule
+    \textbf{Metric} & \textbf{MLP} & \textbf{RecurrentPPO} \\
+    \midrule
+    Completed / pruned trials & 13 / 7 & 11 / 9 \\
+    Reward range & $-62.88$--$546.37$ & $27.67$--$377.07$ \\
+    Mean reward & $367.14 \pm 190.40$ & $143.91 \pm 89.87$ \\
+    Best learning rate & $9.31 \times 10^{-4}$ & $7.90 \times 10^{-5}$ \\
+    Best $n_\text{steps}$ & 512 & 4096 \\
+    Best batch size & 256 & 64 \\
+    Best entropy coef & $0.01641$ & $1.96 \times 10^{-4}$ \\
+    Best $\gamma$ & $0.9986$ & $0.9835$ \\
+    Best clip range & $0.2320$ & $0.2320$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+All training was conducted on a Lenovo PC with 16\,GB RAM and GPU
+acceleration.
+
+\subsection{Inference Latency}
+\label{sec:latency}
+
+Inference latency was measured across all trained policy architectures
+over 1\,000 timed forward passes. Results are shown in
+Figure~\ref{fig:latency} and Table~\ref{tab:latency}. The RecurrentPPO
+policy produced a mean inference latency of $1.930\,\mathrm{ms}$
+(p99~$=3.714\,\mathrm{ms}$, worst-case $5.310\,\mathrm{ms}$)---well
+below the 10--20\,ms control period of typical upper-limb exoskeleton
+platforms~\citep{supriyono2025}.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig8_latency.pdf}
+  \caption{Per-step inference latency (mean~$\pm$ std) for each policy.
+    Vertical lines mark the 10--20\,ms exoskeleton real-time control
+    budget; all policies run well within budget.}
+  \label{fig:latency}
+\end{figure}
+
+\begin{table}[tbp]
+  \centering
+  \caption{Inference latency across architectures (ms).}
+  \label{tab:latency}
+  \small
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Model} & \textbf{Mean} & \textbf{Std} & \textbf{Min}
+      & \textbf{p5} & \textbf{p50} & \textbf{p99} & \textbf{Max} \\
+    \midrule
+    Healthy MLP              & 1.267 & 0.405 & 0.840 & 0.896 & 1.090 & 2.414 & 2.799 \\
+    Brady+Deg MLP            & 1.017 & 0.302 & 0.807 & 0.827 & 0.902 & 2.412 & 2.704 \\
+    Deg-only MLP             & 1.056 & 0.335 & 0.808 & 0.832 & 0.913 & 2.252 & 3.275 \\
+    \textbf{Brady+Deg RecPPO}& \textbf{1.930} & \textbf{0.560}
+      & \textbf{1.448} & \textbf{1.488} & \textbf{1.686}
+      & \textbf{3.714} & \textbf{5.310} \\
+    Noisy RecPPO             & 1.851 & 0.458 & 1.447 & 1.479 & 1.666 & 3.387 & 4.110 \\
+    Deg-only RecPPO          & 1.974 & 0.555 & 1.454 & 1.495 & 1.752 & 3.960 & 4.887 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+%==================================================================
+\section{Experiments and Results}
+\label{sec:results}
+
+\subsection{Evaluation Methodology}
+
+Each policy was evaluated on the same shared set of 4\,000 episode
+configurations. Episodes were stratified across four severity quartiles
+(Q1 mild--Q4 severe) and four radian-travelled bins reflecting the
+actual distance the elbow moved during the episode:
+$0.0$--$0.5$ (39.2\%), $0.5$--$1.0$ (29.2\%), $1.0$--$1.5$ (20.6\%),
+and $1.5{+}$ rad (11.0\%), with 250 episodes per pairing. For every
+episode, three tracks ran on identical configurations: a healthy elbow
+baseline, an impaired patient with no exoskeleton assistance, and the
+impaired patient with exoskeleton assistance.
+
+The primary metric is the Pearson correlation coefficient $r$ between
+the exoskeleton-assisted trajectory and the healthy baseline trajectory
+over the episode. The healthy trajectory represents what the patient
+\emph{intended} to do; PD breaks the link between intention and
+execution. $r{=}1.0$ means the assisted movement is indistinguishable
+from healthy movement; $r{=}0$ means no relationship; negative values
+indicate the assisted movement opposes the intended trajectory.
+
+Goal achievement rate---the fraction of episodes in which the target
+angle was reached---is reported as a secondary metric. Mean episodic
+reward is reported for all policy comparisons. All policies were trained
+to maximise the same MyoSuite pose-error reward.
+
+\subsection{Movement Restoration Performance}
+
+The primary policy---RecurrentPPO trained on combined PD
+impairments---achieved $r{=}0.494$ (std~$=0.317$) and a goal rate of
+$88.8\%$ across 4\,000 stratified episodes. Relative to the
+no-exoskeleton baseline ($r{=}0.223$, goal rate~$=65.1\%$), the
+exoskeleton improved trajectory match by $0.271$ and goal achievement by
+$23.7$ percentage points. Mean reward improved from $97.37$ to $499.73$.
+
+Performance degraded predictably across severity quartiles:
+$r{=}0.654$ at Q1, $0.522$ at Q2, $0.417$ at Q3, and $0.384$ at Q4,
+with goal rates of $99.8\%$, $95.4\%$, $83.7\%$, and $76.4\%$
+respectively---consistent with the exoskeleton's normalised torque
+ceiling being insufficient to fully compensate at extreme impairment levels.
+
+Performance also varied by radian travelled. Trajectory match was lowest
+for smallest movements ($r{=}0.373$, 0.0--0.5 rad bin, 39.2\% of
+episodes) and highest for largest movements ($r{=}0.667$, 1.5+ rad,
+11.0\%). Larger movements give the LSTM more timesteps to accumulate
+temporal context, improving inference of intent and impairment severity.
+The 0.0--0.5 rad bin---the most common and hardest---therefore
+disproportionately shapes the mean metric. Figure~\ref{fig:heatmap}
+shows the full 4$\times$4 performance heatmap.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig5_heatmap.pdf}
+  \caption{Mean Pearson $r$ across target-angle bins (rows) and severity
+    quartiles (columns) for our combined-trained RecurrentPPO
+    (\textbf{left}) versus the degeneration-only policy that represents the
+    current state of the art (\textbf{right}). Both degrade toward Q4 severe
+    and toward small movements (short LSTM context window), but the
+    combined-trained policy retains substantially higher correlation across
+    the grid.}
+  \label{fig:heatmap}
+\end{figure}
+
+\subsection{Ablation 1: RecurrentPPO vs.\ MLP}
+
+RecurrentPPO achieved $r{=}0.494$ versus the MLP's $r{=}0.439$ on the
+same 4\,000 configurations, a gap of $0.055$. Goal rates were close
+($88.8\%$ vs.\ $89.0\%$), but RecurrentPPO produced higher mean reward
+($499.73$ vs.\ $460.29$, gap~$=39.4$)---indicating a smoother, more
+proportionate trajectory toward the goal rather than merely reaching the
+endpoint. The MLP stabilised at 512 timesteps; RecurrentPPO continued
+varying through the full run, reflecting higher sample complexity of
+learning a useful hidden state. Figure~\ref{fig:ablation1} compares the
+two architectures across severity quartiles: RecurrentPPO matches or
+exceeds the MLP in both trajectory match and reward at every quartile,
+with the gap widening at higher severity.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig9_ablation1.pdf}
+  \caption{Ablation 1: per-severity Pearson $r$ (bars) and mean episodic
+    reward (lines) for the RecurrentPPO brady+deg policy versus the MLP
+    brady+deg baseline, evaluated on the full brady+deg environment.
+    RecurrentPPO retains higher trajectory match and reward across all
+    severity quartiles.}
+  \label{fig:ablation1}
+\end{figure}
+
+\subsection{Ablation 2: Combined Impairment vs.\ Degeneration-Only Training}
+
+We claim that training on muscular degeneration alone produces a policy
+that fails under the full complexity of PD. Table~\ref{tab:ablation2}
+and Figure~\ref{fig:ablation_severity} test this directly.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Ablation 2: RecurrentPPO brady+deg vs.\ deg-only, evaluated
+    on the full brady+deg environment.}
+  \label{tab:ablation2}
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Quartile} & \multicolumn{2}{c}{\textbf{Pearson $r$}}
+      & \multicolumn{2}{c}{\textbf{Mean Reward}} \\
+    \cmidrule(r){2-3}\cmidrule(l){4-5}
+    & \textbf{brady+deg} & \textbf{deg-only}
+    & \textbf{brady+deg} & \textbf{deg-only} \\
+    \midrule
+    Q1 mild    & 0.654 & 0.570 & 643.35 & 493.78 \\
+    Q2         & 0.522 & 0.399 & 538.03 & 185.56 \\
+    Q3         & 0.417 & 0.276 & 435.25 &  39.86 \\
+    Q4 severe  & 0.384 & 0.211 & 382.30 &   9.26 \\
+    \midrule
+    \textbf{Overall} & \textbf{0.494} & \textbf{0.364}
+      & \textbf{499.73} & \textbf{182.12} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig4_ablation_severity.pdf}
+  \caption{Ablation 2: per-severity Pearson $r$ (bars) and mean episodic
+    reward (lines) for RecurrentPPO brady+deg vs.\ deg-only. At Q4 the
+    degeneration-only policy's mean reward collapses to $9.26$ (vs.\
+    $382.30$ for the combined policy), highlighting how it fails at severe
+    bradykinesia.}
+  \label{fig:ablation_severity}
+\end{figure}
+
+The degeneration-only RecurrentPPO achieved $r{=}0.364$ (std~$=0.404$),
+a gap of $0.130$ from the combined-trained policy. Goal achievement fell
+from $88.8\%$ to $78.9\%$. Most critically, at Q4 severe the
+degeneration-only policy collapsed to $r{=}0.211$ and a mean reward of
+$9.26$, compared to $r{=}0.384$ and $382.30$ for the combined policy.
+The degeneration-only policy's standard deviation
+grows from $0.281$ at Q1 to $0.446$ at Q4, while the combined policy
+stays bounded ($0.260$--$0.341$). This pattern is consistent with the
+degeneration-only agent having never learned the temporal delay pattern
+of akinesia: when bradykinesia is mild the missing model matters little,
+but as intensity increases the agent's inability to time torque
+corrections compounds, producing both lower mean performance and higher
+variance.
+
+For MLP architectures, the same comparison showed a negligible and
+reversed gap ($r{=}0.439$ brady+deg vs.\ $r{=}0.443$ deg-only). This
+null result, contrasted with the $0.130$ RecurrentPPO gap, confirms that
+the benefit of combined-impairment training is conditional on the
+policy's capacity to exploit it. The LSTM's hidden state is what allows
+combined-impairment training to translate into combined-impairment
+competence.
+
+Figure~\ref{fig:radian_performance} shows performance broken down by
+radian travelled across all policies.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig6_radian_performance.pdf}
+  \caption{Trajectory-tracking Pearson $r$ by radian-travelled bin for
+    four policies with $\pm1\sigma$ bands. The LSTM accumulates temporal
+    context over longer movements, improving performance at larger angles.
+    Dashed line marks the no-exoskeleton overall baseline ($r{=}0.223$).}
+  \label{fig:radian_performance}
+\end{figure}
+
+\subsection{Ablation 3: Noise Robustness}
+
+RecurrentPPO was compared against a noise-trained variant across four
+noise levels ($\sigma = 0.00, 0.01, 0.05, 0.10$) injected into muscle
+activation observations only. The noise-trained policy was initially
+trained for 1\,500\,000 timesteps in a clean environment, then
+fine-tuned for a further 1\,500\,000 timesteps in a noisy environment
+with $\sigma \sim \mathrm{Uniform}(0.01, 0.10)$ per episode.
+
+Both policies maintained strong trajectory match across the full noise
+range (Figure~\ref{fig:noise}). The clean RecurrentPPO declined by only
+$\Delta r{=}0.011$ from $\sigma{=}0.00$ to $\sigma{=}0.10$. The
+noise-trained variant maintained slightly higher performance, though the
+gap is small. These results demonstrate that the LSTM's temporal
+integration provides inherent noise robustness---the recurrent hidden
+state effectively filters transient signal corruption. The tested range
+reflects realistic sEMG sensing conditions: literature establishes
+adequate sEMG SNR at $\geq 18\,\mathrm{dB}$~\citep{pmc8615488}.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{fig7_noise_robustness.pdf}
+  \caption{Noise robustness: clean vs.\ noisy-trained RecurrentPPO
+    across observation noise $\sigma$. Performance degrades by only
+    $\Delta r{=}0.011$.}
+  \label{fig:noise}
+\end{figure}
+
+\begin{table}[tbp]
+  \centering
+  \caption{Noise robustness---Pearson $r$ and goal rate.}
+  \label{tab:noise}
+  \begin{tabular}{lcccc}
+    \toprule
+    & \multicolumn{2}{c}{\textbf{Clean RecPPO}}
+    & \multicolumn{2}{c}{\textbf{Noisy-trained RecPPO}} \\
+    \cmidrule(r){2-3}\cmidrule(l){4-5}
+    $\boldsymbol{\sigma}$ & $r$ & Goal & $r$ & Goal \\
+    \midrule
+    0.00 & 0.632 & 0.906 & 0.638 & 0.923 \\
+    0.01 & 0.628 & 0.897 & 0.636 & 0.895 \\
+    0.05 & 0.626 & 0.903 & 0.632 & 0.897 \\
+    0.10 & 0.621 & 0.899 & 0.630 & 0.897 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Summary}
+
+Table~\ref{tab:summary} presents the full evaluation summary across all
+policies.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Full evaluation summary (4\,000 shared episodes, brady+deg
+    environment).}
+  \label{tab:summary}
+  \small
+  \begin{tabular}{llccc}
+    \toprule
+    \textbf{Policy} & \textbf{Architecture} & \textbf{Pearson $r$}
+      & \textbf{Goal Rate} & \textbf{Mean Reward} \\
+    \midrule
+    No exoskeleton   & ---          & 0.223 & 0.651 &  97.37 \\
+    policy\_deg      & MLP          & 0.443 & 0.805 & 319.07 \\
+    policy\_brady\_deg & MLP        & 0.439 & 0.890 & 460.29 \\
+    policy\_deg\_recurrent & RecPPO & 0.364 & 0.789 & 182.12 \\
+    \textbf{policy\_brady\_deg\_recurrent}
+                     & \textbf{RecPPO} & \textbf{0.494}
+                     & \textbf{0.888} & \textbf{499.73} \\
+    policy\_noisy\_recurrent & RecPPO & 0.475 & 0.892 & 488.67 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The RecurrentPPO policy trained on combined symptoms achieves the highest
+trajectory match and reward. The degeneration-only RecurrentPPO performs
+worst of all exoskeleton policies on the full PD environment, confirming
+that temporal reasoning amplifies the consequences of training environment
+mismatch.
+
+%==================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Interpreting results across severity.}
+The RecurrentPPO policy achieved $r{=}0.494$ and $88.8\%$ goal rate
+across stratified episodes covering mild (Q1, $r{=}0.654$) to severe
+(Q4, $r{=}0.384$) presentations. The monotonic degradation with severity
+confirms the policy is being tested across the full clinical range. For a
+progressive disease, cross-severity generalisation without recalibration
+is more clinically meaningful than peak accuracy on a single calibrated
+patient. This matters because accessibility and adaptability---not sensor
+precision---are the documented barriers to adoption: over $90\%$ of PD
+patients express interest in wearable technology, yet only $8\%$ have
+used a medical device~\citep{hirczy2024, reicherzer2024}.
+
+\paragraph{Environment design as the mechanism of generalisability.}
+The central result is what the ablation reveals: the degeneration-only
+and combined-trained RecurrentPPO are architecturally identical, differing
+only in their training environment. At Q4 severe, the degeneration-only
+policy achieves $r{=}0.211$ and reward $9.26$, while the combined policy
+achieves $r{=}0.384$ and reward $382.30$. This
+isolates the training environment as the critical variable. The same
+three-phase framework is disease-agnostic: replacing the bradykinesia and
+degeneration equations with pathological models for ALS, muscular
+dystrophy, or post-stroke spasticity would apply it to an entirely
+different clinical population.
+
+\subsection{Limitations}
+
+This evaluation is entirely simulation-based---no real PD patients were
+involved and no physical exoskeleton was constructed. Sim-to-real
+transfer for musculoskeletal controllers remains an open
+challenge~\citep{luo2025}; potential gaps in muscle dynamics, sensor
+noise profiles, and body variability cannot be fully characterised without
+clinical validation. However, MyoSuite was developed with validated
+Hill-model dynamics and in collaboration with musculoskeletal researchers,
+reducing but not eliminating this gap~\citep{caggiano2022}. The system
+addresses only the elbow joint, while PD can affect gait, posture,
+handwriting, and full-body coordination; the elbow remains the most
+underrepresented joint in PD-specific research~\citep{capato2023}.
+Finally, while the torque ceiling proved sufficient across the tested
+severity range, late-stage patients at Q4 may benefit from additional
+torque capacity or extended training.
+
+\subsection{Future Work}
+
+The immediate next step is physical exoskeleton construction and clinical
+validation with real PD patients, using the cloud pipeline confirmed
+viable at $1.930\,\mathrm{ms}$ mean inference latency. The three-phase
+framework can be extended to hip, knee, and ankle joints for PD gait
+impairment, or adapted to other neurological conditions. RLHF-based
+fine-tuning using patient preference feedback on the timing and feel of
+assistance would allow post-deployment personalisation without
+recalibration~\citep{endrei2025}. Finally, the monotonic relationship
+between severity and the policy's reward output---from $643.35$ at Q1 to
+$382.30$ at Q4---suggests that exoskeleton torque demand could serve as a
+continuous proxy for PD severity, enabling passive longitudinal monitoring
+of disease progression through daily device use without formal UPDRS
+examination.
+
+%==================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper asked whether deep reinforcement learning can produce an
+autonomous elbow exoskeleton controller that provides real-time, adaptive
+mitigation of Parkinson's motor impairments across diverse patients.
+Three core outcomes characterise our answer. The RecurrentPPO policy
+trained on combined PD symptoms achieved $r{=}0.494$ and $88.8\%$ goal
+achievement across 4\,000 stratified episodes spanning the full PD
+severity spectrum, without recalibration between patients. Inference
+latency was $1.930\,\mathrm{ms}$ mean across 1\,000 timed forward
+passes---well below the control period of typical upper-limb exoskeleton
+platforms---confirming viability for real-time deployment on lightweight
+hardware. Most critically, the ablation study isolates the training
+environment as the mechanism of generalisability: a degeneration-only
+RecurrentPPO---representative of the current state-of-the-art approach
+of training exoskeletons on muscle weakness alone---collapsed to
+$r{=}0.211$ and reward $9.26$ at the most severe patients, compared to
+$r{=}0.384$ and $382.30$ for the combined PD-trained policy at the same
+severity. This collapse, produced by architecturally identical
+policies, shows that what the controller is trained on matters more than
+how it is built.
+
+ReGainX demonstrates that multi-agent RL training environments tailored
+to the full complexity of disease pathology can produce exoskeleton
+policies that generalise across patients without per-session calibration.
+The novel three-phase framework---healthy controller training, combined PD
+impairment simulation, and frozen-patient exoskeleton training---is
+disease-agnostic and computationally tractable on consumer hardware,
+establishing a feasible and scalable blueprint for future ML-based
+assistive devices in progressive, complex neurological disease.
+
+%==================================================================
+\bibliographystyle{abbrvnat}
+
+\begin{thebibliography}{99}
+
+\bibitem[Agostino et al.(2015)]{agostino2015}
+Agostino, R.\ et al.\ (2015).
+Integrated robotics platform: $41\%$ slower speed, $29\%$ shorter
+displacement off-medication.
+\textit{PMC}, 6815040.
+\url{https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6815040/}
+
+\bibitem[Akiba et al.(2019)]{akiba2019}
+Akiba, T., Sano, S., Yanase, T., Ohta, T., and Koyama, M.\ (2019).
+Optuna: A next-generation hyperparameter optimization framework.
+In \textit{Proceedings of the 25th ACM SIGKDD}.
+\url{https://arxiv.org/abs/1907.10902}
+
+\bibitem[Caggiano et al.(2022)]{caggiano2022}
+Caggiano, V., Wang, H., Durandau, G., Sartori, M., and Kumar, V.\ (2022).
+MyoSuite: A contact-rich simulation suite for musculoskeletal motor control.
+In \textit{Proceedings of Machine Learning Research}.
+\url{https://proceedings.mlr.press/v168/caggiano22a.html}
+
+\bibitem[Caligiuri et al.(2018)]{caligiuri2018}
+Caligiuri, M.P.\ et al.\ (2018).
+Quantitative assessment of upper limb functional impairments in PD.
+\textit{Gait \& Posture}, 60, 80--85.
+\url{https://www.sciencedirect.com/science/article/abs/pii/S0268003318303541}
+
+\bibitem[Capato et al.(2023)]{capato2023}
+Capato, T.T.C.\ et al.\ (2023).
+Clinical assessment of upper limb impairments and functional capacity in
+Parkinson's disease: a systematic review.
+\textit{Arquivos de Neuro-Psiquiatria}.
+\url{https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10689111/}
+
+\bibitem[Chaudhuri et al.(2025)]{chaudhuri2025}
+Chaudhuri, K.R.\ et al.\ (2025).
+Understanding Parkinson's disease: current trends.
+\textit{Frontiers in Aging Neuroscience}.
+\url{https://www.frontiersin.org/journals/aging-neuroscience/articles/10.3389/fnagi.2025.1617106/full}
+
+\bibitem[Cools et al.(2017)]{cools2017}
+Cools, A.M.\ et al.\ (2017).
+Normative values and affecting factors for the elbow range of motion.
+\textit{Sports Medicine}.
+\url{https://www.researchgate.net/publication/319649172}
+
+\bibitem[Dalla Gasperina et al.(2021)]{gasperina2021}
+Dalla Gasperina, S.\ et al.\ (2021).
+Review on patient-cooperative control strategies for upper-limb
+rehabilitation exoskeletons.
+\textit{Frontiers in Robotics and AI}.
+\url{https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8688994/}
+
+\bibitem[Durandau et al.(2019)]{durandau2019}
+Durandau, G.\ et al.\ (2019).
+Neuromusculoskeletal controller for exoskeleton assistance.
+Referenced via MyoSuite documentation~\citep{caggiano2022}.
+
+\bibitem[Endrei et al.(2025)]{endrei2025}
+Endrei, T.\ et al.\ (2025).
+Learning to suppress tremors: a DRL-enabled soft exoskeleton for
+Parkinson's patients.
+\textit{Frontiers in Robotics and AI}.
+\url{https://www.frontiersin.org/journals/robotics-and-ai/articles/10.3389/frobt.2025.1537470}
+
+\bibitem[Fortunati et al.(2024)]{fortunati2024}
+Fortunati, M.\ et al.\ (2024).
+Lower-limb exoskeletons for gait training in Parkinson's disease:
+state of the art.
+\textit{Healthcare}.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11353983/}
+
+\bibitem[Hart et al.(2023)]{hart2023}
+Hart, N.\ et al.\ (2023).
+Prevalence of sarcopenia in Parkinson's disease: systematic review.
+\textit{Neurological Sciences}.
+\url{https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10641055/}
+
+\bibitem[Hirczy et al.(2024)]{hirczy2024}
+Hirczy, S.\ et al.\ (2024).
+The current state of wearable device use in Parkinson's disease: a survey.
+\url{https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11701158/}
+
+\bibitem[Ingram et al.(2021)]{ingram2021}
+Ingram, L.A.\ et al.\ (2021).
+Quantifying upper limb motor impairment in people with Parkinson's disease.
+\textit{PeerJ}.
+\url{https://pubmed.ncbi.nlm.nih.gov/33604177/}
+
+\bibitem[Luo et al.(2023)]{luo2023}
+Luo, S.\ et al.\ (2023).
+Robust walking control of a lower limb rehabilitation exoskeleton via DRL.
+\textit{Journal of NeuroEngineering and Rehabilitation}.
+\url{https://link.springer.com/article/10.1186/s12984-023-01147-2}
+
+\bibitem[Luo et al.(2024)]{luo2024}
+Luo, S.\ et al.\ (2024).
+Experiment-free exoskeleton assistance via learning in simulation.
+\textit{Nature}.
+\url{https://www.nature.com/articles/s41586-024-07382-4}
+
+\bibitem[Luo et al.(2025)]{luo2025}
+Luo, S.\ et al.\ (2025).
+Robust neural network controller for a lower limb exoskeleton with
+minimal sensors.
+\textit{Journal of NeuroEngineering and Rehabilitation}.
+\url{https://link.springer.com/article/10.1186/s12984-025-01854-y}
+
+\bibitem[MDPI Sensors(2025)]{mdpi2025}
+Supriyono, Dragusanu, and Malvezzi\ (2025).
+A comprehensive review of elbow exoskeletons.
+\textit{Sensors}.
+\url{https://www.mdpi.com/1424-8220/25/14/4263}
+
+\bibitem[Morrey et al.(1981)]{morrey1981}
+Morrey, B.F.\ et al.\ (1981).
+Functional range of motion of the elbow.
+\textit{Journal of Bone and Joint Surgery}.
+\url{https://pubmed.ncbi.nlm.nih.gov/7775772/}
+
+\bibitem[Myoelectric(2022)]{myoelectric2022}
+PMC\ (2022).
+Myoelectric control systems for upper limb wearable robotic exoskeletons.
+\textit{Sensors}.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC9655258/}
+
+\bibitem[Parkinson's Foundation(2026)]{parkinson2026}
+Parkinson's Foundation\ (2026).
+\$82.2 billion economic burden.
+\url{https://www.parkinson.org/blog/research/economic-burden-2024}
+
+\bibitem[PMC(2024)]{reicherzer2024}
+Reicherzer, L.\ et al.\ (2024).
+Barriers and facilitators to the use of wearable robots as assistive
+devices.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11327840/}
+
+\bibitem[PMC(2025a)]{pmc11852623}
+PMC\ (2025).
+LSTM-enabled EMG-controlled upper arm exoskeleton.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11852623/}
+
+\bibitem[PMC(2025b)]{pmc12451468}
+Carnevale, A.\ et al.\ (2025).
+Portable exoskeletons for upper limb rehabilitation: a systematic review.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC12451468/}
+
+\bibitem[PMC(2025c)]{pmc8615488}
+PMC\ (2021).
+An ultra-low power surface EMG sensor for wearable applications.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC8615488/}
+
+\bibitem[Ponsoni et al.(2023)]{ponsoni2023}
+Ponsoni, A.\ et al.\ (2023).
+Prevalence of sarcopenia in PD: meta-analysis.
+\url{https://pubmed.ncbi.nlm.nih.gov/36413812/}
+
+\bibitem[Raethjen et al.(2018)]{raethjen2018}
+Raethjen, J.\ et al.\ (2018).
+Quantitative analysis of bradykinesia and rigidity in PD.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC5853013/}
+
+\bibitem[Raffin et al.(2021)]{sb3}
+Raffin, A.\ et al.\ (2021).
+Stable-Baselines3: Reliable reinforcement learning implementations.
+\textit{JMLR}.
+\url{https://jmlr.org/papers/v22/20-1364.html}
+
+\bibitem[Raffin and Kanervisto(2023)]{sb3contrib}
+Raffin, A.\ and Kanervisto, A.\ (2023).
+SB3-Contrib: Experimental RL code for Stable Baselines3.
+\url{https://github.com/Stable-Baselines3/stable-baselines3-contrib}
+
+\bibitem[Ramesh and Bilal(2022)]{ramesh2022}
+Ramesh, V.\ and Bilal, E.\ (2022).
+Detecting motor symptom fluctuations in Parkinson's disease with
+generative adversarial networks.
+\textit{npj Digital Medicine}.
+\url{https://www.nature.com/articles/s41746-022-00674-x}
+
+\bibitem[ResearchGate(2023)]{researchgate2023}
+ResearchGate discussion\ (2023).
+How can I find a dataset of pathological EMG signals?
+\url{https://www.researchgate.net/post/How_can_I_find_a_dataset_of_pathological_EMG_signals}
+
+\bibitem[arXiv(2025)]{arxiv2025}
+arXiv\ (2025).
+AI-enabled detection and assessment of PD using multimodal data: a survey.
+\url{https://arxiv.org/html/2502.10703v1}
+
+\bibitem[Siciliano et al.(2024)]{siciliano2024}
+Siciliano, M.\ et al.\ (2024).
+Fatigue in Parkinson's disease: pooled prevalence $\approx$50\%.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11626731/}
+
+\bibitem[Supriyono et al.(2025)]{supriyono2025}
+Supriyono, Dragusanu, M., and Malvezzi, M.\ (2025).
+A comprehensive review of elbow exoskeletons: classification by structure,
+actuation, and sensing technologies.
+\textit{Sensors}.
+\url{https://pmc.ncbi.nlm.nih.gov/articles/PMC12299220/}
+
+\bibitem[Wang et al.(2022)]{wang2022}
+Wang, H., Caggiano, V.\ et al.\ (2022).
+MyoSim: Fast and physiologically realistic MuJoCo models for
+musculoskeletal and exoskeletal studies.
+In \textit{IEEE ICRA}.
+\url{https://dl.acm.org/doi/10.1109/ICRA46639.2022.9811684}
+
+\bibitem[Zajac(1989)]{zajac1989}
+Zajac, F.E.\ (1989).
+Muscle and tendon: properties, models, scaling, and application to
+biomechanics and motor control.
+\textit{Critical Reviews in Biomedical Engineering}, 17(4), 359--411.
+\url{https://pubmed.ncbi.nlm.nih.gov/2676342/}
+
+\end{thebibliography}
+
+\end{document}
