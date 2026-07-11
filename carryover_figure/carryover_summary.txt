@@ -1,0 +1,12 @@
+STEP 3 - CARRYOVER RESULTS (mean +/- std over seeds)
+
+seeds=30  tasks=200  init_MF=0.7  force_scale=0.65  slowdown=1.3
+
+Cumulative fatigue (avg MF) entering task 200:
+  A (no assist)      : 0.8254 +/- 0.0002
+  B (assisted 1-199) : 0.4820 +/- 0.0193
+  reduction B vs A   : +41.6%
+Task-200 final angle (rad):  A=-0.000+/-0.000   B=0.018+/-0.025
+Task-200 Pearson r:  A=-0.782+/-0.033   B=0.310+/-0.627
+Task-200 goal success:  A=0.000+/-0.000   B=0.000+/-0.000
+Goal rate over last 50 tasks:  A=0.000   B=0.451
