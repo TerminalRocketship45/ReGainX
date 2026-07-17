@@ -6,6 +6,7 @@ Real simulation only; reuses the validated carryover helpers.
 """
 import os
 import csv
+import argparse
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -53,6 +54,11 @@ def rollout(assisted, exo_env, exo_policy, seed=0):
 
 
 def main():
+    global N_EP
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tasks", type=int, default=N_EP)
+    args = ap.parse_args()
+    N_EP = args.tasks
     exo_env, healthy_env, healthy_policy, exo_policy = build_envs()
     mf_B, bounds, statsB = rollout(True, exo_env, exo_policy)    # assisted
     mf_A, _, statsA = rollout(False, exo_env, exo_policy)        # no assist
@@ -64,9 +70,13 @@ def main():
               f"net change={tl[-1]-tl[0]:+.4f} ({100*(tl[-1]-tl[0])/tl[0]:+.1f}%)")
         print(f"  mean within-episode change (mf_end-mf_start per ep, "
               f"negative=decrease): {np.mean([s[2]-s[1] for s in stats]):+.4f}")
-        print(f"  per-episode start->end MF:")
-        for ep, m0, m1, drop in stats:
-            print(f"    ep {ep:2d}: {m0:.4f} -> {m1:.4f}  (change {m1-m0:+.4f})")
+        n_dec = sum(1 for s in stats if (s[2] - s[1]) < 0)
+        print(f"  episodes with a within-episode decrease: {n_dec}/{len(stats)}")
+        # print every episode when few; else print ~10 evenly-spaced checkpoints
+        show = stats if len(stats) <= 15 else stats[:: max(1, len(stats) // 10)]
+        print(f"  per-episode start->end MF (checkpoints):")
+        for ep, m0, m1, drop in show:
+            print(f"    ep {ep:3d}: {m0:.4f} -> {m1:.4f}  (change {m1-m0:+.4f})")
 
     summarize(mf_B, statsB, "WITH exoskeleton assistance")
     summarize(mf_A, statsA, "NO assistance")
@@ -87,8 +97,9 @@ def main():
             label="No assistance (torque = 0)")
     ax.plot(x, mf_B, color=B_COLOR, lw=2.0,
             label="With exoskeleton assistance")
-    for b in bounds[1:]:
-        ax.axvline(b, color="#cccccc", lw=0.7, zorder=0)
+    if len(bounds) <= 20:  # episode-boundary guides only when few tasks
+        for b in bounds[1:]:
+            ax.axvline(b, color="#cccccc", lw=0.7, zorder=0)
     ax.axhline(INIT_MF, color="#888888", ls=":", lw=1.0)
     ax.text(len(mf_B) * 0.995, INIT_MF + 0.004, f"start MF = {INIT_MF:.2f}",
             ha="right", va="bottom", fontsize=7.5, color="#666666")
